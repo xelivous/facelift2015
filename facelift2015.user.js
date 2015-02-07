@@ -11,15 +11,14 @@
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_deleteValue
+// @grant		GM_listValues
 // @grant       GM_getResourceText
 // ==/UserScript==
 function logger() {
     var args = Array.prototype.slice.call(arguments);
     args.unshift("[FACELIFT] ");
     console.info.apply(console, args);
-    if(config.get("debug")){
-        $.growl({ title: "Facelift", message: args.map(function(num){return JSON.stringify(num) + "\n";}).join(" "), location: "br"});
-    }
+    $.growl({ title: "Facelift", message: args.map(function(num){return JSON.stringify(num) + "\n";}).join(" "), location: "br"});
 }
 function logerror() {
     var args = Array.prototype.slice.call(arguments);
@@ -64,6 +63,12 @@ function getQueryParams(qs) {
     });
     return vars;
 }
+/* Parses Vbulletin timestamps into an actual useable time 
+ * TODO: actually do something with it
+ */
+function actualTime(time){
+	return time;
+}
 
 var config = {
     'settings': {
@@ -80,12 +85,32 @@ var config = {
     get: function(name) {
         var value = GM_getValue(name, config.settings[name]);
         var tempvalue = JSON.parse(value);
+		//if(name !== 'debug')
+		logger("Fetched something from config: ", tempvalue);
         return tempvalue || value;
     },
     reset: function(name) {
-        logger("Reset the value of " + name);
         GM_deleteValue(name);
-    }
+		logger("Reset the value of " + name);
+    },
+	resetAll: function(){
+		//HACK: greasemonkey keeps having GM_ListValues() break and this is a bad workaround
+		//https://github.com/greasemonkey/greasemonkey/issues/2033
+		var keys = cloneInto(GM_listValues(), window);
+		keys.map(GM_deleteValue);
+		logger("Deleted the following keys: ", keys);
+	},
+	list: function(){
+		//HACK: greasemonkey keeps having GM_ListValues() break and this is a bad workaround
+		//https://github.com/greasemonkey/greasemonkey/issues/2033
+		//weird map thing also... idk this is really kind of dumb
+		var keys = cloneInto(GM_listValues(), window);
+		return keys.map(function(key) {
+			var t = {};
+			t[key] = GM_getValue(key);
+			return t;
+		});
+	}
 };
 
 //easy reference for FP icons
@@ -257,10 +282,8 @@ function addNavbarLink(name, onclick, icon){
 }
 
 //stores information relative to what page we're currently on
-var pageinfo = {
-
-};
-
+//mostly just a placeholder
+var pageinfo = {};
 function determinePageInfo(){
     var loc = window.location.pathname;
     loc = loc.substr(1); //remove leading slash
@@ -309,6 +332,8 @@ function determinePageInfo(){
             if ($("#pollinfo").length ){
                 pageinfo.hasPoll = true;
             }
+			
+			determinePostInfo();
             break;
 
         //posting a new thread
@@ -409,6 +434,67 @@ function determinePageInfo(){
     }
 }
 
+//used when viewing a thread or any other pages that have posts on it
+var postinfo = {};
+function determinePostInfo(){
+	var posts = $("#posts li");
+	
+	posts.each(function(index){
+		var post = $(this);
+		var postid = parseInt(getQueryParams(post.find(".postcounter").attr("href")).p, 10);
+		var userstats = post.find("#userstats").html().split("<br>");
+		
+		//find the ratings, parse a list of them, store into array with keys being the name, and value being the count
+		var ratings = post.find(".rating_results span");
+		var ratingsarr = {};
+		ratings.each(function(){	
+			var type = $(this).find("img").attr("alt");
+			var count = parseInt($(this).find("strong").text(), 10);
+			ratingsarr[type] = count;
+		});
+		
+	    //parse flagdog into -> { fullname: flagcode }
+		var country = post.find(".postlinking img[src^=\"/fp/flags/\"]");
+		var countrycode = (/(?:.*\/flags\/)(.*)(?:\.png)/g.exec(country.attr("src")));
+		countrystats = {};
+		if(countrycode !== null) countrystats[country.attr("alt")] = countrycode[1];
+		
+		//values that we can easily retrieve
+		postinfo[postid] = {
+			"id": postid,
+			"time": actualTime(post.find( ".postdate .date" ).text()),
+			"edited": ( post.find(".postdate .time").length > 0 || false ),
+			"user": {
+				"id": parseInt(getQueryParams(post.find(".username").attr("href")).u, 10),
+				"name": post.find(".username").text(),
+				"title": post.find(".usertitle").text(),
+				"avatar": post.find("img[alt*=\"Avatar\"]"),
+				"rank": ( //don't you just love inline conditionals
+					( post.find(".username font[color=\"#A06000\"]").length > 0) ? "gold" :
+					( post.find(".username span[style=\"color:#00aa00;font-weight:bold;\"]").length > 0 ) ? "moderator" :
+					"blue"),
+				"joinmonth": userstats[0].split(" ")[0],
+				"joinyear": parseInt(userstats[0].split(" ")[1],10),
+				"posts": parseInt(userstats[1].split(" ")[0].replace(',', ''),10),
+				"country": countrystats,
+			},
+			"ratings": ratingsarr,
+			"text": post.find(".postcontent").html(),
+			"numquotes": post.find(".postcontent .quote").length,
+			"numlinks": post.find(".postcontent a").not(".postcontent .quote a").length,
+			"numemotes": post.find(".postcontent img[src^=\"/fp/emoot/\"]").not(".postcontent .quote img").length,
+			"isop": (parseInt(post.find(".nodecontrols a:last-of-type").attr("name"), 10) === 1),
+		};
+		
+		//below are values that require other values
+		var curdate = new Date();
+		var memdate = new Date( postinfo[postid]["userjoinmonth"] + " 1, " + postinfo[postid]["userjoinyear"]);
+		postinfo[postid]["user"]["monthcount"] = (curdate.getFullYear()*12 + curdate.getMonth()*1) - (memdate.getFullYear()*12 + memdate.getMonth()*1);
+	});
+	
+	console.log(postinfo);
+}
+
 function populateCSS() {
     var ourcss = '';
     ourcss += GM_getResourceText("GROWL_CSS") + "\n";
@@ -438,7 +524,5 @@ function init() {
     addNavbarLink("Ticker", "/fp_ticker.php", "ticker");
     addNavbarLink("Subscriptions", "/subscription.php?do=viewsubscription", "book");
     addNavbarLink("Facelift", function(){ popup.openUrlInBox("dumbthing", "mainpopup", false, false ); }, "useful");
-
-    logger(pageinfo);
 }
 init();
