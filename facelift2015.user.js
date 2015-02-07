@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.0.2
+// @version     0.1.0
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
@@ -488,7 +488,7 @@ function determinePostInfo(){
 		
 		//below are values that require other values
 		var curdate = new Date();
-		var memdate = new Date( postinfo[postid]["userjoinmonth"] + " 1, " + postinfo[postid]["userjoinyear"]);
+		var memdate = new Date( postinfo[postid]["user"]["joinmonth"] + " 1, " + postinfo[postid]["user"]["joinyear"]);
 		postinfo[postid]["user"]["monthcount"] = (curdate.getFullYear()*12 + curdate.getMonth()*1) - (memdate.getFullYear()*12 + memdate.getMonth()*1);
 	});
 	
