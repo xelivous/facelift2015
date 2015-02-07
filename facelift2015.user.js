@@ -6,8 +6,8 @@
 // @version     0.0.2
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
-// @resource    GROWL_CSS	jquery.growl.css
-// @resource	FPFIXER_CSS	fpfixer.css
+// @resource    GROWL_CSS   jquery.growl.css
+// @resource    FPFIXER_CSS fpfixer.css
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_deleteValue
@@ -16,12 +16,16 @@
 function logger() {
     var args = Array.prototype.slice.call(arguments);
     args.unshift("[FACELIFT] ");
-    console.info.apply(console, arguments);
+    console.info.apply(console, args);
+    if(config.get("debug")){
+        $.growl({ title: "Facelift", message: args.map(function(num){return JSON.stringify(num) + "\n";}).join(" "), location: "br"});
+    }
 }
 function logerror() {
     var args = Array.prototype.slice.call(arguments);
     args.unshift("[FACELIFT] ");
-    console.error.apply(console, arguments);
+    console.error.apply(console, args);
+    $.growl.error({ message: args.join(" "), location: "br"});
 }
 
 // simple error catching thing
@@ -47,10 +51,24 @@ function arrayContains(needle, arrhaystack) {
 function sescape(v) {
     return v.replace(/&/, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 }
+/* Takes the specified url, and gives you a nicely formatted way to access the get variables
+ * Example: http://dumb.url/?f=3&d=butt&u=me
+ *     obj.f = 3
+ *     obj.d = "butt"
+ *     obj.u = "me"
+ */
+function getQueryParams(qs) {
+    var vars = {};
+    var parts = qs.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
+        vars[key] = value;
+    });
+    return vars;
+}
 
 var config = {
     'settings': {
-        'poststats': '[1, 5, "false"]'
+        'poststats': '[1, 5, "false"]',
+        'debug': true,
     },
 
     set: function(name, value) {
@@ -103,13 +121,20 @@ var icons = {
     'link':         '/fp/link.png',
     'time':         '/fp/time.png',
     'close':        '/fp/close.png',
-}
+    'folder':       '/images/cms/sections.png',
+
+    //hardcoded
+    'book':         'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAAK/INwWK6QAAABl0RVh0U29mdHdhcmUAQWRvYmUgSW1hZ2VSZWFkeXHJZTwAAAHjSURBVDjLdZO/alVBEMZ/5+TemxAbFUUskqAoSOJNp4KC4AsoPoGFIHY+gA+jiJXaKIiChbETtBYLUbSMRf6Aydndmfks9kRjvHdhGVh2fvN9uzONJK7fe7Ai6algA3FZCAmQqEF/dnihpK1v7x7dPw0woF64Izg3Xl5s1n9uIe0lQYUFCtjc+sVuEqHBKfpVAXB1vLzQXFtdYPHkGFUCoahVo1Y/fnie+bkBV27c5R8A0pHxyhKvPn5hY2MHRQAQeyokFGJze4cuZfav3gLNYDTg7Pklzpw4ijtIQYRwFx6BhdjtCk+erU0CCPfg+/o2o3ZI13WUlLGo58YMg+GIY4dmCWkCAAgPzAspJW5ePFPlV3VI4uHbz5S5IQfy/yooHngxzFser30iFcNcuAVGw3A0Ilt91IkAsyCXQg5QO0szHEIrogkiguwN2acCoJhjnZGKYx4Ujz5WOA2YD1BMU+BBSYVUvNpxkXuIuWgbsOxTHrG3UHIFWIhsgXtQQpTizNBS5jXZQkhkcywZqQQlAjdRwiml7wU5xWLaL1AvZa8WIjALzIRZ7YVWDW5CiIj48Z8F2pYLl1ZR0+AuzEX0UX035mxIkLq0dhDw5vXL97fr5O3rfwQHJhPx4uuH57f2AL8BfPrVlrs6xwsAAAAASUVORK5CYII=',
+
+};
 
 document.addEventListener('mousemove', function(e){
     popup.mouse.x = e.clientX || e.pageX;
     popup.mouse.y = e.clientY || e.pageY
 }, false);
 
+
+// popup class for the easy creation of popups
 var popup = {
     'mouse': {
         'x': 0,
@@ -231,13 +256,166 @@ function addNavbarLink(name, onclick, icon){
     .insertBefore("#navbarlinks .navbarlink:last-child");
 }
 
-function populateCSS() {
-	var ourcss = '';
-	ourcss += GM_getResourceText("GROWL_CSS") + "\n";
-	ourcss += GM_getResourceText("FPFIXER_CSS") + "\n";
+//stores information relative to what page we're currently on
+var pageinfo = {
 
-	//custom css
-    ourcss += 'body{ background-color: #f00; }';
+};
+
+function determinePageInfo(){
+    var loc = window.location.pathname;
+    loc = loc.substr(1); //remove leading slash
+
+    var te = loc.indexOf("/"); //still have slash?
+    if(te !== -1){
+        loc = loc.substr(0,te+1); //trim everything after slash
+    } else {
+        te = loc.indexOf(".php");
+        if (te !== -1) {
+            loc = loc.substr(0,te+4); //trim everything after ".php"
+        }
+    }
+
+    var qparams = getQueryParams(window.location.search);
+
+    //always grab the username of person running script
+    pageinfo.username = $( "#navbar-login a" ).text();
+
+    switch(loc){
+        //we're at the index page (probably?)
+        case "forum.php": case "":
+            pageinfo.index = true;
+            break;
+
+        //viewing forum
+        case "forums/": case "forumdisplay.php":
+            pageinfo.forum = true;
+            pageinfo.forumName = $( "#lastelement span" ).text();
+            pageinfo.forumID = parseInt(qparams.f, 10);
+            break;
+
+        //viewing thread
+        case "threads/": case "showthread.php":
+            pageinfo.thread = true;
+
+            //Find "breadcrumb" in header, take last span, find the "a" tag inside of it
+            pageinfo.forumName = $( "#breadcrumb :last-of-type a" ).text();
+            pageinfo.forumID =  parseInt(getQueryParams($( "#breadcrumb :last-of-type a" )[0].href).f,10);
+            pageinfo.threadName = $( "#lastelement span" ).text();
+            //it's possible to be on thread page without specifiying "t" in the url
+            //so we fetch the permalink of the first post instead #yolo
+            pageinfo.threadID = parseInt(getQueryParams($("a.postcounter")[0].href).t, 10);
+            pageinfo.pageNum = parseInt(qparams.page, 10) || 1;
+
+            if ($("#pollinfo").length ){
+                pageinfo.hasPoll = true;
+            }
+            break;
+
+        //posting a new thread
+        case "newthread/": case "newthread.php":
+            pageinfo.newthread = true;
+            break;
+
+        //making a poll?
+        case "poll/": case "poll.php":
+            pageinfo.poll = true;
+            break;
+
+        //making a sicknasty reply
+        case "newreply/": case "newreply.php":
+            pageinfo.newreply = true;
+            pageinfo.threadID = parseInt(getQueryParams($( "#breadcrumb :last-of-type a" )[0].href).t,10);
+            pageinfo.threadName = $( "#breadcrumb span:last-of-type a" ).text();
+            pageinfo.postID = parseInt(qparams.p || 0,10);
+            break;
+
+        //editing a post
+        case "editpost/": case "editpost.php":
+            pageinfo.editpost = true;
+            break;
+
+        //PMs inbox and other stuff like that
+        case "private/": case "private.php":
+            pageinfo.pm = true;
+
+            switch(qparams.do){
+                case "showpm":
+                    pageinfo.showpm = true;
+                    pageinfo.sender = $("#post_ .username").text();
+                    pageinfo.recipients = [];
+                    $("#showpm .commalist .username").each( function (index) {
+                        pageinfo.recipients.push($(this).text());
+                    });
+                    if(pageinfo.recipients.length == 0){
+                        pageinfo.recipients.push(pageinfo.username);
+                    }
+                    break;
+
+                case undefined: //inbox
+                    var temp = $("#foldercontrols .allfolders").attr("title");
+                    temp = temp.substr(temp.indexOf(":")+1);
+                    pageinfo.messageNum = parseInt(temp, 10) || 0;
+
+                    temp = $("#foldercontrols .quota").attr("title");
+                    temp = temp.substr(temp.indexOf(":")+1);
+                    pageinfo.messageMax = parseInt(temp, 10) || 0;
+                    break;
+            }
+            break;
+
+        //viewing recent happenings/events
+        case "fp_events/": case "fp_events.php":
+            pageinfo.eventlog = true;
+            pageinfo.eventType = qparams.type || "all";
+            pageinfo.eventMem = parseInt(qparams.user || 0, 10);
+            break;
+
+        //viewing someone's userpage
+        case "members/": case "members.php": case "member.php":
+            pageinfo.members = true;
+            break;
+
+        //viewing the disabled memberlist
+        case "memberlist/": case "memberlist.php":
+            pageinfo.memberlist = true;
+            break;
+
+        //seeing the list of online members
+        case "online/": case "online.php":
+            pageinfo.online = true;
+            break;
+
+        //moderator/admin list (i don't know the URL rewrite version though so i just guessed)
+        case "showgroups/": case "showgroups.php":
+            pageinfo.showgroups = true;
+            break;
+
+        //chat was totally removed but i'll still keep this here anyways
+        case "chat/": case "chat.php":
+            pageinfo.chat = true;
+            break;
+
+        case "read/": case "fp_read.php":
+            pageinfo.read = true;
+            break;
+
+        case "subscription/": case "subscription.php":
+            pageinfo.subscription = true;
+            break;
+
+        default:
+            pageinfo.unknown = true;
+            break;
+    }
+}
+
+function populateCSS() {
+    var ourcss = '';
+    ourcss += GM_getResourceText("GROWL_CSS") + "\n";
+    ourcss += GM_getResourceText("FPFIXER_CSS") + "\n";
+
+    // custom css
+    //ourcss += "";
 
     //now we actually add our CSS to the page
     //replace our existing stylesheet if it's already there, or add it to the bottom of the page to prevent overwriting
@@ -250,13 +428,17 @@ function populateCSS() {
         style.textContent = ourcss;
         document.body.appendChild(style);
     }
-	
+
 }
 
 function init() {
     populateCSS();
-    logger(config.get("poststats"));
+    determinePageInfo();
+
     addNavbarLink("Ticker", "/fp_ticker.php", "ticker");
+    addNavbarLink("Subscriptions", "/subscription.php?do=viewsubscription", "book");
     addNavbarLink("Facelift", function(){ popup.openUrlInBox("dumbthing", "mainpopup", false, false ); }, "useful");
+
+    logger(pageinfo);
 }
 init();
