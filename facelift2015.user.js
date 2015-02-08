@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.2.0
+// @version     0.2.1
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
@@ -647,6 +647,15 @@ function addNavbarLinks(){
     addNavbarLink("Ticker", "/fp_ticker.php", "ticker");
     addNavbarLink("Subscriptions", "/subscription.php?do=viewsubscription&folderid=all", "book");
     //addNavbarLink("Facelift", function(){ popup.openUrlInBox("dumbthing", "mainpopup", false, false ); }, "useful");
+
+    $(document.createElement("a"))
+        .attr("href","profile.php?do=facelift")
+        .append($(document.createElement("img"))
+            .attr("src", icons["artistic"])
+            .attr("alt", "Facelift")
+            .attr("title", "Facelift")
+        )
+        .appendTo($("#navbar-login .buttons"));
 }
 
 function init() {
