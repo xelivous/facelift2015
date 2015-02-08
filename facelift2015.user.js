@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.3.0
+// @version     0.3.1
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
@@ -721,12 +721,12 @@ function createOptionsMenu(){
     
     unsafeWindow.document.documentElement.innerHTML = GM_getResourceText("FLCONFIGPAGE");
     
-    addNavbarLinks();
+    //addNavbarLinks();
 
     $("#usercp_nav .active").attr("class", "inactive");
     $("#breadcrumb #lastelement").text("Facelift Configuration");
 
-    addOptionToUserCP(true);
+    //addOptionToUserCP(true);
     
     //old janky version below
     /*$.get( "/profile.php?do=editattachments" , function( data ) {
@@ -757,11 +757,11 @@ function addNavbarLinks(){
 }
 
 function init() {
-    populateCSS();
 
     determinePageInfo();
     console.log(pageinfo);
     
+    populateCSS();
     addNavbarLinks();
 }
 init();
