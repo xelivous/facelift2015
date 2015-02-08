@@ -8,6 +8,7 @@
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
 // @resource    FPFIXER_CSS fpfixer.css
+// @resource    FLCONFIGPAGE fpconfigpage.html
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_deleteValue
@@ -76,22 +77,23 @@ function actualTime(time){
             time = new Date( Date.parse( mytime ) );
         } else {
             //using relative time -- just a tiny bit harder
+            //has a console.log bug where it won't log to console until the end of this block and everything has already changed??
             var time = new Date();
             mytime[0] = parseInt(mytime[0], 10);
             mytime[1] = mytime[1].toLowerCase();
             
             switch(mytime[1]){
                 case "days": case "day":
-                    time.setDate( - mytime[0] );
+                    time.setDate( time.getDate() -mytime[0] );
                     break;
                 case "hours": case "hour":
-                    time.setHours( - mytime[0] );
+                    time.setHours( time.getHours() -mytime[0] );
                     break;
                 case "minutes": case "minute":
-                    time.setMinutes( - mytime[0] );
+                    time.setMinutes( time.getMinutes() -mytime[0] );
                     break;
                 case "seconds": case "seconds":
-                    time.setSeconds( - mytime[0] );
+                    time.setSeconds( time.getSeconds() -mytime[0] );
                     break;
             }
         }
@@ -715,7 +717,19 @@ function addOptionToUserCP(messActive){
 }
 
 function createOptionsMenu(){
-    $.get( "/profile.php?do=editattachments" , function( data ) {
+    document.body.textContent = "Loading page!!";
+    
+    unsafeWindow.document.documentElement.innerHTML = GM_getResourceText("FLCONFIGPAGE");
+    
+    addNavbarLinks();
+
+    $("#usercp_nav .active").attr("class", "inactive");
+    $("#breadcrumb #lastelement").text("Facelift Configuration");
+
+    addOptionToUserCP(true);
+    
+    //old janky version below
+    /*$.get( "/profile.php?do=editattachments" , function( data ) {
         unsafeWindow.document.documentElement.innerHTML = data;
         addNavbarLinks();
 
@@ -724,7 +738,7 @@ function createOptionsMenu(){
         $("#attachmentlist").remove();
 
         addOptionToUserCP(true);
-    });
+    });*/
 }
 
 function addNavbarLinks(){
