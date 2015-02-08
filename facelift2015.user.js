@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.1.0
+// @version     0.2.0
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
@@ -11,14 +11,15 @@
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_deleteValue
-// @grant		GM_listValues
+// @grant       GM_listValues
 // @grant       GM_getResourceText
 // ==/UserScript==
 function logger() {
     var args = Array.prototype.slice.call(arguments);
     args.unshift("[FACELIFT] ");
     console.info.apply(console, args);
-    $.growl({ title: "Facelift", message: args.map(function(num){return JSON.stringify(num) + "\n";}).join(" "), location: "br"});
+    var mymessage = args.map(function(num){return JSON.stringify(num) + "\n";}).join(" ");
+    $.growl({ title: "Facelift", message: mymessage, location: "br"});
 }
 function logerror() {
     var args = Array.prototype.slice.call(arguments);
@@ -63,55 +64,78 @@ function getQueryParams(qs) {
     });
     return vars;
 }
-/* Parses Vbulletin timestamps into an actual useable time 
+/* Parses Vbulletin timestamps into an actual useable time
  * TODO: actually do something with it
  */
 function actualTime(time){
-	return time;
+    return time;
 }
 
-var config = {
-    'settings': {
+//OOP config object
+var configObj = function (settings, prefix) {
+    this.settings = settings;
+    this.prefix = prefix;
+};
+configObj.prototype.set = function(name, value) {
+    //just fucken stringify everything who cares!!!
+    value = JSON.stringify(value);
+    logger("Set the value of " + this.prefix + name + " to: " + value);
+    GM_setValue(this.prefix + name, value);
+};
+configObj.prototype.get = function(name) {
+    var value = GM_getValue(this.prefix + name, this.settings[name]);
+    var tempvalue = JSON.parse(value);
+    //if(name !== 'debug')
+    logger("Fetched something from config: ", this.prefix + name , tempvalue);
+    return tempvalue || value;
+};
+configObj.prototype.reset = function(name) {
+    GM_deleteValue(this.prefix + name);
+    logger("Reset the value of " + this.prefix + name);
+};
+configObj.prototype.resetAll = function(){
+    //HACK: greasemonkey keeps having GM_ListValues() break and this is a bad workaround
+    //https://github.com/greasemonkey/greasemonkey/issues/2033
+    var keys = cloneInto(GM_listValues(), window);
+    keys.map(function(key) {
+        if(key.indexOf(this.prefix) !== -1){
+            GM_deleteValue(key);
+        }
+    });
+
+    logger("Deleted the following keys: ", keys);
+};
+configObj.prototype.list = function(){
+    //HACK: greasemonkey keeps having GM_ListValues() break and this is a bad workaround
+    //https://github.com/greasemonkey/greasemonkey/issues/2033
+    //weird map thing also... idk this is really kind of dumb
+    var keys = cloneInto(GM_listValues(), window);
+    var mythis = this; //HACK: inline functions use wrong this :^)
+
+    return keys.map(function(key) {
+        if(key.indexOf(mythis.prefix) !== -1){
+            var t = {};
+            t[key] = GM_getValue(key);
+            return t;
+        }
+    });
+};
+
+//actually create our config objects with default parameters
+var config = new configObj(
+    {
         'poststats': '[1, 5, "false"]',
         'debug': true,
     },
+    "settings_"
+);
 
-    set: function(name, value) {
-        //just fucken stringify everything who cares!!!
-        value = JSON.stringify(value);
-        logger("Set the value of " + name + " to: " + value);
-        GM_setValue(name, value);
+var data = new configObj(
+    {
+        'obj': false,
     },
-    get: function(name) {
-        var value = GM_getValue(name, config.settings[name]);
-        var tempvalue = JSON.parse(value);
-		//if(name !== 'debug')
-		logger("Fetched something from config: ", tempvalue);
-        return tempvalue || value;
-    },
-    reset: function(name) {
-        GM_deleteValue(name);
-		logger("Reset the value of " + name);
-    },
-	resetAll: function(){
-		//HACK: greasemonkey keeps having GM_ListValues() break and this is a bad workaround
-		//https://github.com/greasemonkey/greasemonkey/issues/2033
-		var keys = cloneInto(GM_listValues(), window);
-		keys.map(GM_deleteValue);
-		logger("Deleted the following keys: ", keys);
-	},
-	list: function(){
-		//HACK: greasemonkey keeps having GM_ListValues() break and this is a bad workaround
-		//https://github.com/greasemonkey/greasemonkey/issues/2033
-		//weird map thing also... idk this is really kind of dumb
-		var keys = cloneInto(GM_listValues(), window);
-		return keys.map(function(key) {
-			var t = {};
-			t[key] = GM_getValue(key);
-			return t;
-		});
-	}
-};
+    "data_"
+);
 
 //easy reference for FP icons
 var icons = {
@@ -150,16 +174,14 @@ var icons = {
 
     //hardcoded
     'book':         'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAAK/INwWK6QAAABl0RVh0U29mdHdhcmUAQWRvYmUgSW1hZ2VSZWFkeXHJZTwAAAHjSURBVDjLdZO/alVBEMZ/5+TemxAbFUUskqAoSOJNp4KC4AsoPoGFIHY+gA+jiJXaKIiChbETtBYLUbSMRf6Aydndmfks9kRjvHdhGVh2fvN9uzONJK7fe7Ai6algA3FZCAmQqEF/dnihpK1v7x7dPw0woF64Izg3Xl5s1n9uIe0lQYUFCtjc+sVuEqHBKfpVAXB1vLzQXFtdYPHkGFUCoahVo1Y/fnie+bkBV27c5R8A0pHxyhKvPn5hY2MHRQAQeyokFGJze4cuZfav3gLNYDTg7Pklzpw4ijtIQYRwFx6BhdjtCk+erU0CCPfg+/o2o3ZI13WUlLGo58YMg+GIY4dmCWkCAAgPzAspJW5ePFPlV3VI4uHbz5S5IQfy/yooHngxzFser30iFcNcuAVGw3A0Ilt91IkAsyCXQg5QO0szHEIrogkiguwN2acCoJhjnZGKYx4Ujz5WOA2YD1BMU+BBSYVUvNpxkXuIuWgbsOxTHrG3UHIFWIhsgXtQQpTizNBS5jXZQkhkcywZqQQlAjdRwiml7wU5xWLaL1AvZa8WIjALzIRZ7YVWDW5CiIj48Z8F2pYLl1ZR0+AuzEX0UX035mxIkLq0dhDw5vXL97fr5O3rfwQHJhPx4uuH57f2AL8BfPrVlrs6xwsAAAAASUVORK5CYII=',
-
+    'faceliftcp':   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA8AAAAQCAYAAADJViUEAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAQxJREFUeNp8U1ENwkAM3V0QcBLAwXAAyf4BB6AAJgEFgIKBAnAAKAAJc7A5GC15JS9l0ORl1+u9tu96C0VRZM6WgrUgd/sXwUFws41IQT38EFQ9RLW54CrYefIQASNtBQHV1Fbwa8EGBbKAtpU4oSqB1l2Pr1ZGtDNxLT7wbfA9O19treQZnD0qlKQ/kd6O/LfUSDpLSqI2du1+GZObntZMb/hFbrFOuLjkiB0kWJKnzT2So21PMRZfObfxkJyFkk9O67GnwzFeXsWXFvEQWppf44gVurMEH2mmeUFtJke2C7UEuT3RAQI3aN39IXMCvcCWf4wjApfsv2mCkeA+cIEaEhIq5jQNf65+CTAAkBpA6/X4W+8AAAAASUVORK5CYII=',
 };
 
+// popup class for the easy creation of popups
 document.addEventListener('mousemove', function(e){
     popup.mouse.x = e.clientX || e.pageX;
     popup.mouse.y = e.clientY || e.pageY
 }, false);
-
-
-// popup class for the easy creation of popups
 var popup = {
     'mouse': {
         'x': 0,
@@ -284,6 +306,7 @@ function addNavbarLink(name, onclick, icon){
 //stores information relative to what page we're currently on
 //mostly just a placeholder
 var pageinfo = {};
+
 function determinePageInfo(){
     var loc = window.location.pathname;
     loc = loc.substr(1); //remove leading slash
@@ -314,6 +337,9 @@ function determinePageInfo(){
             pageinfo.forum = true;
             pageinfo.forumName = $( "#lastelement span" ).text();
             pageinfo.forumID = parseInt(qparams.f, 10);
+
+            processThreads();
+
             break;
 
         //viewing thread
@@ -332,8 +358,8 @@ function determinePageInfo(){
             if ($("#pollinfo").length ){
                 pageinfo.hasPoll = true;
             }
-			
-			determinePostInfo();
+
+            processPosts();
             break;
 
         //posting a new thread
@@ -357,35 +383,6 @@ function determinePageInfo(){
         //editing a post
         case "editpost/": case "editpost.php":
             pageinfo.editpost = true;
-            break;
-
-        //PMs inbox and other stuff like that
-        case "private/": case "private.php":
-            pageinfo.pm = true;
-
-            switch(qparams.do){
-                case "showpm":
-                    pageinfo.showpm = true;
-                    pageinfo.sender = $("#post_ .username").text();
-                    pageinfo.recipients = [];
-                    $("#showpm .commalist .username").each( function (index) {
-                        pageinfo.recipients.push($(this).text());
-                    });
-                    if(pageinfo.recipients.length == 0){
-                        pageinfo.recipients.push(pageinfo.username);
-                    }
-                    break;
-
-                case undefined: //inbox
-                    var temp = $("#foldercontrols .allfolders").attr("title");
-                    temp = temp.substr(temp.indexOf(":")+1);
-                    pageinfo.messageNum = parseInt(temp, 10) || 0;
-
-                    temp = $("#foldercontrols .quota").attr("title");
-                    temp = temp.substr(temp.indexOf(":")+1);
-                    pageinfo.messageMax = parseInt(temp, 10) || 0;
-                    break;
-            }
             break;
 
         //viewing recent happenings/events
@@ -426,6 +423,52 @@ function determinePageInfo(){
 
         case "subscription/": case "subscription.php":
             pageinfo.subscription = true;
+            addOptionToUserCP();
+
+            $("#jump-to-folder").prepend($(document.createElement("a"))
+                .addClass("textcontrol")
+                .attr("href", "/usercp.php")
+                .css("float", "left").css("margin-right", "1em")
+                .text("View Subscriptions with New Posts")
+            );
+
+            break;
+
+        //userprofile options configuration menu thing
+        case "profile/": case "profile.php": case "usercp/": case "usercp.php":
+            pageinfo.usercp = true;
+            addOptionToUserCP();
+            if(qparams.do === "facelift") createOptionsMenu();
+            break;
+
+        //PMs inbox and other stuff like that
+        case "private/": case "private.php":
+            pageinfo.pm = true;
+            addOptionToUserCP();
+
+            switch(qparams.do){
+                case "showpm":
+                    pageinfo.showpm = true;
+                    pageinfo.sender = $("#post_ .username").text();
+                    pageinfo.recipients = [];
+                    $("#showpm .commalist .username").each( function (index) {
+                        pageinfo.recipients.push($(this).text());
+                    });
+                    if(pageinfo.recipients.length == 0){
+                        pageinfo.recipients.push(pageinfo.username);
+                    }
+                    break;
+
+                case undefined: //inbox
+                    var temp = $("#foldercontrols .allfolders").attr("title");
+                    temp = temp.substr(temp.indexOf(":")+1);
+                    pageinfo.messageNum = parseInt(temp, 10) || 0;
+
+                    temp = $("#foldercontrols .quota").attr("title");
+                    temp = temp.substr(temp.indexOf(":")+1);
+                    pageinfo.messageMax = parseInt(temp, 10) || 0;
+                    break;
+            }
             break;
 
         default:
@@ -435,65 +478,106 @@ function determinePageInfo(){
 }
 
 //used when viewing a thread or any other pages that have posts on it
-var postinfo = {};
-function determinePostInfo(){
-	var posts = $("#posts li");
-	
-	posts.each(function(index){
-		var post = $(this);
-		var postid = parseInt(getQueryParams(post.find(".postcounter").attr("href")).p, 10);
-		var userstats = post.find("#userstats").html().split("<br>");
-		
-		//find the ratings, parse a list of them, store into array with keys being the name, and value being the count
-		var ratings = post.find(".rating_results span");
-		var ratingsarr = {};
-		ratings.each(function(){	
-			var type = $(this).find("img").attr("alt");
-			var count = parseInt($(this).find("strong").text(), 10);
-			ratingsarr[type] = count;
-		});
-		
-	    //parse flagdog into -> { fullname: flagcode }
-		var country = post.find(".postlinking img[src^=\"/fp/flags/\"]");
-		var countrycode = (/(?:.*\/flags\/)(.*)(?:\.png)/g.exec(country.attr("src")));
-		countrystats = {};
-		if(countrycode !== null) countrystats[country.attr("alt")] = countrycode[1];
-		
-		//values that we can easily retrieve
-		postinfo[postid] = {
-			"id": postid,
-			"time": actualTime(post.find( ".postdate .date" ).text()),
-			"edited": ( post.find(".postdate .time").length > 0 || false ),
-			"user": {
-				"id": parseInt(getQueryParams(post.find(".username").attr("href")).u, 10),
-				"name": post.find(".username").text(),
-				"title": post.find(".usertitle").text(),
-				"avatar": post.find("img[alt*=\"Avatar\"]"),
-				"rank": ( //don't you just love inline conditionals
-					( post.find(".username font[color=\"#A06000\"]").length > 0) ? "gold" :
-					( post.find(".username span[style=\"color:#00aa00;font-weight:bold;\"]").length > 0 ) ? "moderator" :
-					"blue"),
-				"joinmonth": userstats[0].split(" ")[0],
-				"joinyear": parseInt(userstats[0].split(" ")[1],10),
-				"posts": parseInt(userstats[1].split(" ")[0].replace(',', ''),10),
-				"country": countrystats,
-			},
-			"ratings": ratingsarr,
-			"text": post.find(".postcontent").html(),
-			"numquotes": post.find(".postcontent .quote").length,
-			"numlinks": post.find(".postcontent a").not(".postcontent .quote a").length,
-			"numemotes": post.find(".postcontent img[src^=\"/fp/emoot/\"]").not(".postcontent .quote img").length,
-			"isop": (parseInt(post.find(".nodecontrols a:last-of-type").attr("name"), 10) === 1),
-		};
-		
-		//below are values that require other values
-		var curdate = new Date();
-		var memdate = new Date( postinfo[postid]["user"]["joinmonth"] + " 1, " + postinfo[postid]["user"]["joinyear"]);
-		postinfo[postid]["user"]["monthcount"] = (curdate.getFullYear()*12 + curdate.getMonth()*1) - (memdate.getFullYear()*12 + memdate.getMonth()*1);
-	});
-	
-	console.log(postinfo);
+function processPosts(){
+    var posts = $("#posts li");
+
+    if(typeof(pageinfo["posts"]) === 'undefined') pageinfo["posts"] = {};
+    if(typeof(pageinfo["users"]) === 'undefined') pageinfo["users"] = {};
+
+    posts.each(function(index){
+        var post = $(this);
+        var postid = parseInt(getQueryParams(post.find(".postcounter").attr("href")).p, 10);
+        var userstats = post.find("#userstats").html().split("<br>");
+
+        //find the ratings, parse a list of them, store into array with keys being the name, and value being the count
+        var ratings = post.find(".rating_results span");
+        var ratingsarr = {};
+        ratings.each(function(){
+            var type = $(this).find("img").attr("alt");
+            var count = parseInt($(this).find("strong").text(), 10);
+            ratingsarr[type] = count;
+        });
+
+        //parse flagdog into -> { fullname: flagcode }
+        var country = post.find(".postlinking img[src^=\"/fp/flags/\"]");
+        var countrycode = (/(?:.*\/flags\/)(.*)(?:\.png)/g.exec(country.attr("src")));
+        countrystats = {};
+        if(countrycode !== null) countrystats[country.attr("alt")] = countrycode[1];
+
+        //who posted this thing??
+        var userid = parseInt(getQueryParams(post.find(".username").attr("href")).u, 10);
+
+        //values that we can easily retrieve
+        pageinfo["posts"][postid] = {
+            "id": postid,
+            "time": actualTime(post.find( ".postdate .date" ).text()),
+            "edited": ( post.find(".postdate .time").length > 0 || false ),
+            "posterid": userid,
+            "ratings": ratingsarr,
+            "text": post.find(".postcontent").html(),
+            "numquotes": post.find(".postcontent .quote").length,
+            "numlinks": post.find(".postcontent a").not(".postcontent .quote a").length,
+            "numemotes": post.find(".postcontent img[src^=\"/fp/emoot/\"]").not(".postcontent .quote img").length,
+            "isop": (parseInt(post.find(".nodecontrols a:last-of-type").attr("name"), 10) === 1),
+        };
+
+        pageinfo["users"][userid] = {
+            "id": parseInt(getQueryParams(post.find(".username").attr("href")).u, 10),
+            "name": post.find(".username").text(),
+            "title": post.find(".usertitle").text(),
+            "avatar": post.find("img[alt*=\"Avatar\"]"),
+            "rank": ( //don't you just love inline conditionals
+                ( post.find(".username font[color=\"#A06000\"]").length > 0) ? "gold" :
+                ( post.find(".username span[style=\"color:#00aa00;font-weight:bold;\"]").length > 0 ) ? "moderator" :
+                "blue"),
+            "joinmonth": userstats[0].split(" ")[0],
+            "joinyear": parseInt(userstats[0].split(" ")[1],10),
+            "posts": parseInt(userstats[1].split(" ")[0].replace(',', ''),10),
+            "country": countrystats,
+        };
+
+        //below are values that require other values to already be set
+        var curdate = new Date();
+        var memdate = new Date( pageinfo["users"][userid]["joinmonth"] + " 1, " + pageinfo["users"][userid]["joinyear"]);
+        pageinfo["users"][userid]["monthcount"] = (curdate.getFullYear()*12 + curdate.getMonth()*1) - (memdate.getFullYear()*12 + memdate.getMonth()*1);
+    });
 }
+
+function processThreads(){
+    //subscription.php?do=doaddsubscription&threadid=1444284
+    var threads = $("#threads .threadbit");
+
+    threads.each(function(index){
+        var thread = $(this);
+
+        modifyThreadBit(thread);
+    });
+
+}
+function modifyThreadBit(thread){
+
+
+    $(document.createElement("a"))
+        .text("Subscribe")
+        .attr("rel", "nofollow")
+        .attr("href", "")
+        .click(function(e){
+            e.preventDefault();
+            subscribeThread(
+                $(this),
+                parseInt(getQueryParams(thread.find(".threadtitle .title").attr("href")).t, 10),
+                false
+            );
+        })
+        .appendTo(thread.find(".threadmeta .author"));
+
+
+}
+function subscribeThread(obj, id, isAlreadySub){
+    logger("Fake subscribing to ", id);
+    obj.text("Unsubscribe");
+}
+
 
 function populateCSS() {
     var ourcss = '';
@@ -517,12 +601,60 @@ function populateCSS() {
 
 }
 
+function addOptionToUserCP(messActive){
+    //select the "my account" portion of the navigation
+    var myaccount = $("#usercp_nav .block:last-of-type .blockbody > ul > li:nth-child(2)");
+
+    var mylist = $(document.createElement("li"));
+    mylist.addClass("facelift")
+    .append($(document.createElement("h3"))
+        .addClass("blocksubhead")
+        .text(" Facelift")
+        .prepend($(document.createElement("img"))
+            .addClass("usercpimage")
+            .attr("alt", "Facelift")
+            .attr("src", icons['faceliftcp'])
+        )
+    ).append($(document.createElement("ul"))
+        .addClass("blockrow")
+    ).insertAfter(myaccount);
+
+
+
+    mylist.find("ul").append($(document.createElement("li"))
+        .addClass((messActive)? "active" : "inactive" )
+        .append($(document.createElement("a"))
+            .attr("href", "profile.php?do=facelift")
+            .text("Configuration")
+        )
+    );
+}
+
+function createOptionsMenu(){
+    $.get( "/profile.php?do=editattachments" , function( data ) {
+        unsafeWindow.document.documentElement.innerHTML = data;
+        addNavbarLinks();
+
+        $("#usercp_nav .active").attr("class", "inactive");
+        $("#breadcrumb #lastelement").text("Facelift Configuration");
+        $("#attachmentlist").remove();
+
+        addOptionToUserCP(true);
+    });
+}
+
+function addNavbarLinks(){
+    addNavbarLink("Ticker", "/fp_ticker.php", "ticker");
+    addNavbarLink("Subscriptions", "/subscription.php?do=viewsubscription&folderid=all", "book");
+    //addNavbarLink("Facelift", function(){ popup.openUrlInBox("dumbthing", "mainpopup", false, false ); }, "useful");
+}
+
 function init() {
     populateCSS();
-    determinePageInfo();
 
-    addNavbarLink("Ticker", "/fp_ticker.php", "ticker");
-    addNavbarLink("Subscriptions", "/subscription.php?do=viewsubscription", "book");
-    addNavbarLink("Facelift", function(){ popup.openUrlInBox("dumbthing", "mainpopup", false, false ); }, "useful");
+    determinePageInfo();
+    console.log(pageinfo);
+
+    addNavbarLinks();
 }
 init();
