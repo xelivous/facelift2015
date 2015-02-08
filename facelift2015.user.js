@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.3.1
+// @version     0.3.2
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
@@ -726,7 +726,7 @@ function createOptionsMenu(){
     $("#usercp_nav .active").attr("class", "inactive");
     $("#breadcrumb #lastelement").text("Facelift Configuration");
 
-    //addOptionToUserCP(true);
+    addOptionToUserCP(true);
     
     //old janky version below
     /*$.get( "/profile.php?do=editattachments" , function( data ) {
