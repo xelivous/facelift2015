@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.2.1
+// @version     0.3.0
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
@@ -64,10 +64,39 @@ function getQueryParams(qs) {
     });
     return vars;
 }
-/* Parses Vbulletin timestamps into an actual useable time
- * TODO: actually do something with it
+/* Parses VBulletin timestamps into an actual usable Date object
  */
 function actualTime(time){
+    var mytime = time.split(" ");
+    
+    if(mytime.length === 3){
+        if(mytime[2].toLowerCase().indexOf("ago") === -1){
+            //using absolute time -- super ez
+            mytime = mytime[1] + " " + /\d*/g.exec(mytime[0]) + ", " + mytime[2];
+            time = new Date( Date.parse( mytime ) );
+        } else {
+            //using relative time -- just a tiny bit harder
+            var time = new Date();
+            mytime[0] = parseInt(mytime[0], 10);
+            mytime[1] = mytime[1].toLowerCase();
+            
+            switch(mytime[1]){
+                case "days": case "day":
+                    time.setDate( - mytime[0] );
+                    break;
+                case "hours": case "hour":
+                    time.setHours( - mytime[0] );
+                    break;
+                case "minutes": case "minute":
+                    time.setMinutes( - mytime[0] );
+                    break;
+                case "seconds": case "seconds":
+                    time.setSeconds( - mytime[0] );
+                    break;
+            }
+        }
+    }
+        
     return time;
 }
 
@@ -86,7 +115,7 @@ configObj.prototype.get = function(name) {
     var value = GM_getValue(this.prefix + name, this.settings[name]);
     var tempvalue = JSON.parse(value);
     //if(name !== 'debug')
-    logger("Fetched something from config: ", this.prefix + name , tempvalue);
+    //config.log("Fetched something from config: ", this.prefix + name , tempvalue);
     return tempvalue || value;
 };
 configObj.prototype.reset = function(name) {
@@ -179,8 +208,8 @@ var icons = {
 
 // popup class for the easy creation of popups
 document.addEventListener('mousemove', function(e){
-    popup.mouse.x = e.clientX || e.pageX;
-    popup.mouse.y = e.clientY || e.pageY
+    popup.mouse.x = e.pageX;
+    popup.mouse.y = e.pageY;
 }, false);
 var popup = {
     'mouse': {
@@ -229,7 +258,26 @@ var popup = {
 
         return div;
     },
-
+    
+    'prep': function(node){
+        node.text("");
+        node.prepend($(document.createElement('a'))
+            .attr("href", "")
+            .css("float", "right")
+            .click(function(event){
+                event.preventDefault();
+                $(this).parent().hide();
+            })
+            .append(
+                $(document.createElement('img'))
+                .attr("src", icons["close"])
+            )
+        );
+        
+        var mybox = $(document.createElement('div')).css("margin", "1em");
+        mybox.appendTo(node);
+        return mybox;
+    },
 
     'openUrlInBox': function(name, content, isUrl, autohide) {
         var div = popup.createFloatingDiv(name, 'urlbox');
@@ -253,22 +301,7 @@ var popup = {
                     div.html( data );
                 });
             } else {
-                div.text("");
-                div.prepend($(document.createElement('a'))
-                    .attr("href", "")
-                    .css("float", "right")
-                    .click(function(event){
-                        event.preventDefault();
-                        $(this).parent().hide();
-                    })
-                    .append(
-                        $(document.createElement('img'))
-                        .attr("src", icons["close"])
-                    )
-                );
-
-                var mybox = $(document.createElement('div')).css("margin", "1em");
-                mybox.appendTo(div);
+                var mybox = popup.prep(div);
 
                 //call our page function stored above
                 popup.pages[content](mybox);
@@ -478,6 +511,7 @@ function determinePageInfo(){
 }
 
 //used when viewing a thread or any other pages that have posts on it
+//TODO: check for deleted posts
 function processPosts(){
     var posts = $("#posts li");
 
@@ -540,7 +574,57 @@ function processPosts(){
         var curdate = new Date();
         var memdate = new Date( pageinfo["users"][userid]["joinmonth"] + " 1, " + pageinfo["users"][userid]["joinyear"]);
         pageinfo["users"][userid]["monthcount"] = (curdate.getFullYear()*12 + curdate.getMonth()*1) - (memdate.getFullYear()*12 + memdate.getMonth()*1);
+    
+    
+    
+        //manipulate a post
+        if(config.get("debug") === true){
+            $(document.createElement("a"))
+            .attr("href","")
+            .click(function(e){ 
+                e.preventDefault();
+                var div = popup.createFloatingDiv('debug_'+postid, 'debug');
+                if (!div) return false; 
+                
+                /*div.click(function(){
+                    $(this).hide();
+                });*/
+                div.show('fast');
+                var mybox = popup.prep(div);
+                
+                debugPosts(postid, mybox);
+            })
+            .append($(document.createElement("img"))
+                .attr("src", icons["wrench"])
+                .attr("alt", "Debug")
+                .attr("title", "Debug")
+            )
+            .appendTo(post.find(".postlinking"));
+        }
     });
+    
+}
+
+function debugPosts(id, div){
+    var mytable = $(document.createElement("table")).css("border-collapse", "separate").css("border-spacing", ".5em");
+    div.append(mytable);
+    for(key in pageinfo['posts'][id]){
+        var mydata = pageinfo['posts'][id][key];
+        if(typeof(mydata) === "object") mydata = JSON.stringify(mydata);
+    
+        mytable.append($(document.createElement("tr"))
+            .append($(document.createElement("th"))
+                .text(key + ": ")
+                .css("font-weight", "bold")
+            )
+            .append($(document.createElement("td")).append($(document.createElement("div"))
+                .text(mydata)
+                .css("max-height", "5em")
+                .css("max-width", "30em")
+                .css("overflow", "auto")
+            ))
+        );
+    }
 }
 
 function processThreads(){
@@ -663,7 +747,7 @@ function init() {
 
     determinePageInfo();
     console.log(pageinfo);
-
+    
     addNavbarLinks();
 }
 init();
