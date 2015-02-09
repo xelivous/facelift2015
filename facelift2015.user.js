@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.3.2
+// @version     0.4.0
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
@@ -20,7 +20,7 @@ function logger() {
     args.unshift("[FACELIFT] ");
     console.info.apply(console, args);
     var mymessage = args.map(function(num){return JSON.stringify(num) + "\n";}).join(" ");
-    $.growl({ title: "Facelift", message: mymessage, location: "br"});
+    $.growl({ title: "Facelift", message: mymessage, location: "bl"});
 }
 function logerror() {
     var args = Array.prototype.slice.call(arguments);
@@ -115,9 +115,11 @@ configObj.prototype.set = function(name, value) {
 };
 configObj.prototype.get = function(name) {
     var value = GM_getValue(this.prefix + name, this.settings[name]);
-    var tempvalue = JSON.parse(value);
+    var tempvalue;
+    try{
+        var tempvalue = JSON.parse(value);
+    } catch (e){}
     //if(name !== 'debug')
-    //config.log("Fetched something from config: ", this.prefix + name , tempvalue);
     return tempvalue || value;
 };
 configObj.prototype.reset = function(name) {
@@ -157,6 +159,8 @@ var config = new configObj(
     {
         'poststats': '[1, 5, "false"]',
         'debug': true,
+        'shrinkimages': true,
+        'showchat': false,
     },
     "settings_"
 );
@@ -311,7 +315,76 @@ var popup = {
         }
         return false;
     }
-}
+};
+
+//used for chat
+var sidebar = {
+    'init': function(){
+        if(config.get("showchat") === true) sidebar.toggle();
+    
+        $(document.createElement('button'))
+            .text("Chat")
+            .addClass("chatbutton")
+            .click(function(){ 
+                if(config.get("showchat") === true){
+                    config.set("showchat", false);
+                } else {
+                    config.set("showchat", true);
+                }
+                sidebar.toggle(); 
+            })
+            .appendTo(document.body);  
+    },
+    
+    'toggle': function(){
+        var sidebar = $("#sidebar");
+        
+        //create it if we can't find it already
+        if(sidebar.length == 0){
+            sidebar = $(document.createElement('div'));
+            
+            sidebar.attr("id", "sidebar")
+                .append($(document.createElement('h2'))
+                    .text("Facepunch Chat")
+                )
+                .append($(document.createElement('div'))
+                    .attr("id", "disqus_thread")
+                )
+                .insertBefore($("#content_inner"));
+            sidebar.hide();
+            
+            sidebar.append($(document.createElement('script'))
+                .attr("type", "text/javascript")
+                .text("var disqus_shortname = 'fpfacelift';\
+                var disqus_identifier = 'general';\
+                var disqus_title = 'Facepunch Chat';\
+                var disqus_url = 'http://facepunch.com/';\
+                \
+                /* * * DON'T EDIT BELOW THIS LINE * * */\
+                (function() {\
+                    var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;\
+                    dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';\
+                    (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);\
+                })();")
+            );
+                
+        }
+
+        var myscroll = $(document).scrollTop();
+        var myheight = $(document).height();
+
+        $("#content_inner").toggleClass("makeroomforsidebar");
+        $("#footer").toggleClass("makeroomforsidebar");
+        sidebar.toggle();
+        
+        //HACK: HOW THE FUCK DO I MATH
+        var mynewheight = $(document).height();
+        var mynewscroll = myscroll + Math.ceil((myscroll / mynewheight) * (mynewheight - myheight));
+
+        //scroll back to where we were
+        $(document).scrollTop(mynewscroll);
+    },
+};
 
 function addNavbarLink(name, onclick, icon){
     var mya = $(document.createElement('a')).text(name)
@@ -670,9 +743,32 @@ function populateCSS() {
     ourcss += GM_getResourceText("GROWL_CSS") + "\n";
     ourcss += GM_getResourceText("FPFIXER_CSS") + "\n";
 
-    // custom css
-    //ourcss += "";
-
+    // chat functionality
+    ourcss += "\r\n body { margin-bottom: 2em; }";
+    ourcss += "\r\n .chatbutton{ position:fixed; bottom:0; right:0em; padding: .4em 1em; background: #fff; border:1px solid #222; cursor: pointer; }";
+    ourcss += "\r\n #sidebar { float: right; width: 40%; background: rgba(255,255,255,.8); margin-top: 1em;}";
+    ourcss += "\r\n #sidebar h2 { font-size: 12pt; font-weight: bold; padding: .5em;}";
+    ourcss += "\r\n #disqus_thread { margin: 2em; }";
+    //fixing the clears for chat
+    ourcss += "\r\n #footer { z-index: 1; position: relative; clear:left; width: inherit; }";
+    ourcss += "\r\n .threadlist, .below_threadlist, .above_threadlist, .member_summary, .member_summary .block, table#threads, #content_inner, .postlist, #postlist, div.threadhead, div.threadfoot, ol#posts .postbitlegacy, ol#announcements .postbitlegacy, div#showpm > ol .postbitlegacy, ol#message_list .postbitlegacy, ol#posts .postbit, ol#announcements .postbit, div#showpm > ol .postbit, ol#message_list .postbit, ol#posts .postbitdeleted, ol#announcements .postbitdeleted, div#showpm > ol .postbitdeleted, ol#message_list .postbitdeleted { clear: left; }";
+    ourcss += "\r\n .makeroomforsidebar { margin-right: calc(40% + 1em) !important; }";
+    
+    ourcss += "\r\n .quote { display: block; left:0; right: 1em; overflow:hidden; height:auto;}";
+    ourcss += "\r\r .quote .message { }";
+    
+    if(config.get('shrinkimages') === true){ //div.quote div.message img
+        ourcss +=
+          '.postbit .content img, .postbitlegacy .content img, .postbitdeleted .content img, .postbitignored .content img, .eventbit .content img { max-width: 100% !important; max-height: 1024px !important; }\
+          .postbit .content img[class~="thumbnail"], .postbitlegacy .content img[class~="thumbnail"], .postbitdeleted .content img[class~="thumbnail"], .postbitignored .content img[class~="thumbnail"], .eventbit .content img[class~="thumbnail"], div.quote div.message img { max-width: 800px !important; max-height: 350px !important; }\
+          ';
+        ourcss += "DIV.video {max-width: 100%; position:relative;}";
+        ourcss += "DIV.video iframe {top:0; left:0; position:absolute;}";
+    } 
+    else{ //someone has bad taste tbh
+        ourcss += 'blockquote.postcontent { overflow:auto !important; }';
+    }
+    
     //now we actually add our CSS to the page
     //replace our existing stylesheet if it's already there, or add it to the bottom of the page to prevent overwriting
     if (document.getElementById('FP_CSS') !== null) {
@@ -763,5 +859,7 @@ function init() {
     
     populateCSS();
     addNavbarLinks();
+    
+    sidebar.init();
 }
 init();
