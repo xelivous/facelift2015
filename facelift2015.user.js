@@ -92,8 +92,6 @@ function actualTime(time){
             //using relative time -- just a tiny bit harder
             //has a console.log bug where it won't log to console until the end of this block and everything has already changed??
             var time = new Date();
-            time.setHours(time.getHours() + timezone);
-            
             mytime[0] = parseInt(mytime[0], 10);
             mytime[1] = mytime[1].toLowerCase();
            
@@ -116,6 +114,9 @@ function actualTime(time){
     } else {
         time = new Date();
     }
+    
+    //timezone fixer
+    time.setHours(time.getHours() + timezone);
         
     return time;
 }
