@@ -1,9 +1,9 @@
-// ==UserScript==
+﻿// ==UserScript==
 // @name        facelift2015
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.5.1
+// @version     0.6.0
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
@@ -60,16 +60,27 @@ function sescape(v) {
  *     obj.u = "me"
  */
 function getQueryParams(qs) {
-    console.log(qs);
     var vars = {};
     var parts = qs.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
         vars[key] = value;
     });
     return vars;
 }
-/* Parses VBulletin timestamps into an actual usable Date object
+/* Parses VBulletin timestamps into an actual usable Date object 
+ * pls kill me
  */
 function actualTime(time){
+    //we use timezone to put the relative times back into UTC
+    var timezone = $("#footer_time").text();
+    timezone = timezone.substr(timezone.indexOf("GMT"));
+    timezone = timezone.substr(0, timezone.indexOf("."));
+    timezone = timezone.split(" ");
+    if(timezone[1]){
+        timezone = -1 * parseInt(timezone[1]);
+    } else {
+        timezone = 0;
+    }
+
     var mytime = time.split(" ");
     
     if(mytime.length === 3){
@@ -81,24 +92,29 @@ function actualTime(time){
             //using relative time -- just a tiny bit harder
             //has a console.log bug where it won't log to console until the end of this block and everything has already changed??
             var time = new Date();
+            time.setHours(time.getHours() + timezone);
+            
             mytime[0] = parseInt(mytime[0], 10);
             mytime[1] = mytime[1].toLowerCase();
+           
             
             switch(mytime[1]){
                 case "days": case "day":
-                    time.setDate( time.getDate() -mytime[0] );
+                    time.setDate( time.getDate() - mytime[0] );
                     break;
                 case "hours": case "hour":
-                    time.setHours( time.getHours() -mytime[0] );
+                    time.setHours( time.getHours() - mytime[0] );
                     break;
                 case "minutes": case "minute":
-                    time.setMinutes( time.getMinutes() -mytime[0] );
+                    time.setMinutes( time.getMinutes() - mytime[0] );
                     break;
                 case "seconds": case "seconds":
-                    time.setSeconds( time.getSeconds() -mytime[0] );
+                    time.setSeconds( time.getSeconds() - mytime[0] );
                     break;
             }
         }
+    } else {
+        time = new Date();
     }
         
     return time;
@@ -112,7 +128,7 @@ var configObj = function (settings, prefix) {
 configObj.prototype.set = function(name, value) {
     //just fucken stringify everything who cares!!!
     value = JSON.stringify(value);
-    console.log("Set the value of " + this.prefix + name + " to: " + value);
+    //console.log("Set the value of " + this.prefix + name + " to: " + value);
     GM_setValue(this.prefix + name, value);
 };
 configObj.prototype.get = function(name) {
@@ -126,7 +142,7 @@ configObj.prototype.get = function(name) {
 };
 configObj.prototype.reset = function(name) {
     GM_deleteValue(this.prefix + name);
-    console.log("Reset the value of " + this.prefix + name);
+    //console.log("Reset the value of " + this.prefix + name);
 };
 configObj.prototype.resetAll = function(){
     //HACK: greasemonkey keeps having GM_ListValues() break and this is a bad workaround
@@ -138,7 +154,7 @@ configObj.prototype.resetAll = function(){
         }
     });
 
-    console.log("Deleted the following keys: ", keys);
+    //console.log("Deleted the following keys: ", keys);
 };
 configObj.prototype.list = function(){
     //HACK: greasemonkey keeps having GM_ListValues() break and this is a bad workaround
@@ -451,7 +467,8 @@ function determinePageInfo(){
     }
 
     var qparams = getQueryParams(window.location.search);
-
+    pageinfo.qparams = qparams;
+    
     switch(loc){
         //we're at the index page (probably?)
         case "forum.php": case "":
@@ -557,6 +574,12 @@ function determinePageInfo(){
                 .css("float", "left").css("margin-right", "1em")
                 .text("View Subscriptions with New Posts")
             );
+            
+            //whoever made these buttons are probably retarded
+            $("#usercp_content .groupcontrols a[href=\"subscription.php?do=viewsubscription&daysprune=-1folderid=all\"]")
+                .attr("href", "subscription.php?do=viewsubscription&daysprune=-1&folderid=all" );
+            
+            updateSubscriptionData();
 
             break;
 
@@ -737,34 +760,84 @@ function processThreads(){
     //subscription.php?do=doaddsubscription&threadid=1444284
     var threads = $("#threads .threadbit");
 
+    $("#threads .threadlisthead .threadicon").after($(document.createElement("td"))
+        .addClass("threadsubscribe")
+        .append($(document.createElement("span"))
+            .text("Sub")
+        )
+    );
+    pageinfo["threads"] = {};
+    
     threads.each(function(index){
         var thread = $(this);
-
+        var threadid = parseInt(thread.attr("id").split("_")[1], 10);
+        pageinfo["threads"][threadid] = {
+            "id": threadid,
+            "name": thread.find(".threadtitle > a.title").text(),
+            "replies": parseInt(thread.find(".threadreplies").text().replace(',', ''), 10),
+            "views": parseInt(thread.find(".threadviews").text().replace(',', ''), 10),
+            "lastpostdate": actualTime(thread.find( ".threadlastpost > dl > dd:first-of-type" ).text())
+        };
+        
         modifyThreadBit(thread);
     });
 
 }
 function modifyThreadBit(thread){
 
-
-    $(document.createElement("a"))
-        .text("Subscribe")
-        .attr("rel", "nofollow")
-        .attr("href", "")
-        .click(function(e){
-            e.preventDefault();
-            subscribeThread(
-                $(this),
-                parseInt(getQueryParams(thread.find(".threadtitle .title").attr("href")).t, 10)
-            );
-        })
-        .appendTo(thread.find(".threadmeta .author"));
-
-
+    thread.find(".threadicon").after($(document.createElement("td"))
+        .addClass("threadsubscribe alt")
+        .append($(document.createElement("a"))
+            .text("★")
+            .attr("rel", "nofollow")
+            .attr("title", "Subscribe")
+            .attr("href", "")
+            .click(function(e){
+                e.preventDefault();
+                subscribeThread(
+                    $(this),
+                    parseInt(getQueryParams(thread.find(".threadtitle .title").attr("href")).t, 10)
+                );
+            })
+        )
+    );
 }
 function subscribeThread(obj, id){
+    /* Can just visit this URL for removing
+        /subscription.php?do=removesubscription&return=ucp&t=1444284
+    */
+    
+    /* Ajax POST to this 
+        /subscription.php?do=doaddsubscription&threadid=1448770
+        emailupdate: 0  (only through control panel)
+        folderid: 0 (default subscribe area)
+    */
+    var subscribedata = data.get("subscribe_" + id);
+    
+    if(subscribedata){
+        console.log(subscribedata);
+    } else {
+        data.set("subscribe_" + id, "subscribed");
+    }
+
     logger("Fake subscribing to ", id);
-    obj.text("Unsubscribe");
+    obj.toggleClass("subscribed");
+    var mytitle = obj.attr("title");
+    if(mytitle === "Subscribe") obj.attr("title", "Un-Subscribe");
+    else obj.attr("title", "Subscribe");
+}
+
+//called when we're on the dosubscription part of usercp
+function updateSubscriptionData(){
+
+    if(pageinfo.qparams.folderid){
+        if(pageinfo.qparams.folderid === 'all'){
+            console.log("test");
+        }
+        else {
+        
+        }
+    }
 }
 
 
@@ -773,6 +846,12 @@ function populateCSS() {
     ourcss += GM_getResourceText("GROWL_CSS") + "\n";
     ourcss += GM_getResourceText("FPFIXER_CSS") + "\n";
 
+    //thread subscribing stuff
+    ourcss += "\r\n table#threads tr td.threadsubscribe { text-align:center; min-width: 20px; }";
+    ourcss += "\r\n .threadsubscribe a { font-size: 170%; vertical-align: middle; color: #828282 !important; text-shadow: -1px -1px 0px #000, 1px 1px 0px #FFF;}";
+    ourcss += "\r\n .threadsubscribe a:hover { text-decoration: none; color: #bb7 !important; }";
+    ourcss += "\r\n .threadsubscribe a.subscribed { color: #FFA !important; text-shadow: 1px 0px #777, 0px 1px #777, -1px 0px #777, 0px -1px #777;}";
+    
     // chat functionality
     ourcss += "\r\n body { margin-bottom: 2em; }";
     ourcss += "\r\n .chatbutton{ position:fixed; z-index: 2; bottom:0; right:0em; padding: .4em 1em; background: #fff; border:1px solid #222; cursor: pointer; }";
@@ -784,19 +863,16 @@ function populateCSS() {
     ourcss += "\r\n .threadlist, .below_threadlist, .above_threadlist, .member_summary, .member_summary .block, table#threads, #content_inner, .postlist, #postlist, div.threadhead, div.threadfoot, ol#posts .postbitlegacy, ol#announcements .postbitlegacy, div#showpm > ol .postbitlegacy, ol#message_list .postbitlegacy, ol#posts .postbit, ol#announcements .postbit, div#showpm > ol .postbit, ol#message_list .postbit, ol#posts .postbitdeleted, ol#announcements .postbitdeleted, div#showpm > ol .postbitdeleted, ol#message_list .postbitdeleted { clear: left; }";
     ourcss += "\r\n .makeroomforsidebar { margin-right: calc(40% + 1em) !important; }";
     
-    ourcss += "\r\n .quote { display: block; left:0; right: 1em; overflow:hidden; height:auto;}";
-    ourcss += "\r\r .quote .message { }";
     
-    if(config.get('shrinkimages') === true){ //div.quote div.message img
-        ourcss +=
-          '.postbit .content img, .postbitlegacy .content img, .postbitdeleted .content img, .postbitignored .content img, .eventbit .content img { max-width: 100% !important; max-height: 1024px !important; }\
-          .postbit .content img[class~="thumbnail"], .postbitlegacy .content img[class~="thumbnail"], .postbitdeleted .content img[class~="thumbnail"], .postbitignored .content img[class~="thumbnail"], .eventbit .content img[class~="thumbnail"], div.quote div.message img { max-width: 800px !important; max-height: 350px !important; }\
-          ';
-        ourcss += "DIV.video {max-width: 100%; position:relative;}";
-        ourcss += "DIV.video iframe {top:0; left:0; position:absolute;}";
+    if(config.get('shrinkimages') === true){
+        ourcss += "\r\n .quote { display: block; left:0; right: 1em; overflow:hidden; height:auto;}";
+        ourcss += "\r\n .postbit .content img, .postbitlegacy .content img, .postbitdeleted .content img, .postbitignored .content img, .eventbit .content img { max-width: 100% !important; max-height: 1024px !important; }";
+        ourcss += "\r\n .postbit .content img[class~=\"thumbnail\"], .postbitlegacy .content img[class~=\"thumbnail\"], .postbitdeleted .content img[class~=\"thumbnail\"], .postbitignored .content img[class~=\"thumbnail\"], .eventbit .content img[class~=\"thumbnail\"], div.quote div.message img { max-width: 800px !important; max-height: 350px !important; }";
+        ourcss += "\r\n DIV.video {max-width: 100%; position:relative;}";
+        ourcss += "\r\n DIV.video iframe {top:0; left:0; position:absolute;}";
     } 
     else{ //someone has bad taste tbh
-        ourcss += 'blockquote.postcontent { overflow:auto !important; }';
+        ourcss += '\r\n blockquote.postcontent { overflow:auto !important; }';
     }
     
     //now we actually add our CSS to the page
@@ -901,7 +977,8 @@ function createOptionsMenu(){
 
 function addNavbarLinks(){
     addNavbarLink("Ticker", "/fp_ticker.php", "ticker");
-    addNavbarLink("Subscriptions", "/subscription.php?do=viewsubscription&folderid=all", "book");
+    //addNavbarLink("Subscriptions", "/subscription.php?folderid=all", "book
+    addNavbarLink("Subscriptions", "/usercp.php", "book");
     //addNavbarLink("Facelift", function(){ popup.openUrlInBox("dumbthing", "mainpopup", false, false ); }, "useful");
 
     $(document.createElement("a"))
