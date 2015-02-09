@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.6.0
+// @version     0.6.1
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
@@ -76,7 +76,7 @@ function actualTime(time){
     timezone = timezone.substr(0, timezone.indexOf("."));
     timezone = timezone.split(" ");
     if(timezone[1]){
-        timezone = -1 * parseInt(timezone[1]);
+        timezone = -1 * parseInt(timezone[1], 10);
     } else {
         timezone = 0;
     }
