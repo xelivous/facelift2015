@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.5.0
+// @version     0.5.1
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
@@ -17,10 +17,11 @@
 // ==/UserScript==
 function logger() {
     var args = Array.prototype.slice.call(arguments);
+    var mymessage = args.map(function(num){return JSON.stringify(num) + "\n";}).join(" ");
+    $.growl({ title: "Facelift", message: mymessage, location: "bl"});
+    
     args.unshift("[FACELIFT] ");
     console.info.apply(console, args);
-    var mymessage = args.map(function(num){return JSON.stringify(num) + "\n";}).join(" ");
-    //$.growl({ title: "Facelift", message: mymessage, location: "bl"});
 }
 function logerror() {
     var args = Array.prototype.slice.call(arguments);
@@ -59,6 +60,7 @@ function sescape(v) {
  *     obj.u = "me"
  */
 function getQueryParams(qs) {
+    console.log(qs);
     var vars = {};
     var parts = qs.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
         vars[key] = value;
@@ -110,7 +112,7 @@ var configObj = function (settings, prefix) {
 configObj.prototype.set = function(name, value) {
     //just fucken stringify everything who cares!!!
     value = JSON.stringify(value);
-    logger("Set the value of " + this.prefix + name + " to: " + value);
+    console.log("Set the value of " + this.prefix + name + " to: " + value);
     GM_setValue(this.prefix + name, value);
 };
 configObj.prototype.get = function(name) {
@@ -124,7 +126,7 @@ configObj.prototype.get = function(name) {
 };
 configObj.prototype.reset = function(name) {
     GM_deleteValue(this.prefix + name);
-    logger("Reset the value of " + this.prefix + name);
+    console.log("Reset the value of " + this.prefix + name);
 };
 configObj.prototype.resetAll = function(){
     //HACK: greasemonkey keeps having GM_ListValues() break and this is a bad workaround
@@ -136,7 +138,7 @@ configObj.prototype.resetAll = function(){
         }
     });
 
-    logger("Deleted the following keys: ", keys);
+    console.log("Deleted the following keys: ", keys);
 };
 configObj.prototype.list = function(){
     //HACK: greasemonkey keeps having GM_ListValues() break and this is a bad workaround
@@ -175,7 +177,6 @@ configObj.prototype.prettyPrint = function(node, key, value, edit){
 //actually create our config objects with default parameters
 var config = new configObj(
     {
-        'poststats': '[1, 5, "false"]',
         'debug': true,
         'shrinkimages': true,
         'showchat': false,
@@ -185,7 +186,9 @@ var config = new configObj(
 
 var data = new configObj(
     {
-
+        'firsttime': true,
+        'username': 'unknown',
+        'userid': 0,
     },
     "data_"
 );
@@ -612,7 +615,6 @@ function determinePageInfo(){
 }
 
 //used when viewing a thread or any other pages that have posts on it
-//TODO: check for deleted posts
 function processPosts(){
     var posts = $("#posts li");
 
@@ -621,6 +623,10 @@ function processPosts(){
 
     posts.each(function(index){
         var post = $(this);
+        
+        //only process if the post wasn't deleted
+        if(post.attr("class").indexOf("postbitdeleted") !== -1) return false;
+    
         var postid = parseInt(getQueryParams(post.find(".postcounter").attr("href")).p, 10);
         var userstats = post.find("#userstats").html().split("<br>");
 
@@ -702,8 +708,7 @@ function processPosts(){
             )
             .appendTo(post.find(".postlinking"));
         }
-    });
-    
+    }); 
 }
 
 function debugPosts(id, div){
@@ -750,15 +755,14 @@ function modifyThreadBit(thread){
             e.preventDefault();
             subscribeThread(
                 $(this),
-                parseInt(getQueryParams(thread.find(".threadtitle .title").attr("href")).t, 10),
-                false
+                parseInt(getQueryParams(thread.find(".threadtitle .title").attr("href")).t, 10)
             );
         })
         .appendTo(thread.find(".threadmeta .author"));
 
 
 }
-function subscribeThread(obj, id, isAlreadySub){
+function subscribeThread(obj, id){
     logger("Fake subscribing to ", id);
     obj.text("Unsubscribe");
 }
@@ -935,4 +939,9 @@ function init() {
         data.set("firsttime", false);
     }
 }
-init();
+
+try {
+    init();
+} catch(e) {
+    logger(e);
+}
