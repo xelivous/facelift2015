@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.4.0
+// @version     0.5.0
 // @require     http://code.jquery.com/jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @resource    GROWL_CSS   jquery.growl.css
@@ -20,7 +20,7 @@ function logger() {
     args.unshift("[FACELIFT] ");
     console.info.apply(console, args);
     var mymessage = args.map(function(num){return JSON.stringify(num) + "\n";}).join(" ");
-    $.growl({ title: "Facelift", message: mymessage, location: "bl"});
+    //$.growl({ title: "Facelift", message: mymessage, location: "bl"});
 }
 function logerror() {
     var args = Array.prototype.slice.call(arguments);
@@ -145,13 +145,31 @@ configObj.prototype.list = function(){
     var keys = cloneInto(GM_listValues(), window);
     var mythis = this; //HACK: inline functions use wrong this :^)
 
-    return keys.map(function(key) {
+    keys = keys.filter(function(key) {
         if(key.indexOf(mythis.prefix) !== -1){
-            var t = {};
-            t[key] = GM_getValue(key);
-            return t;
+            return true;
         }
     });
+    
+    return keys.map(function(key) {
+        var t = {};
+        t[key] = GM_getValue(key);
+        return t;
+    });
+};
+configObj.prototype.prettyPrint = function(node, key, value, edit){
+    value = JSON.parse(value);
+
+    return node.append($(document.createElement("tr"))
+        .append($(document.createElement("td"))
+            .text(key)
+            .addClass("facelift_config key")
+        )
+        .append($(document.createElement("td"))
+            .text(value)
+            .addClass("facelift_config value " + typeof(value))
+        )
+    );
 };
 
 //actually create our config objects with default parameters
@@ -167,7 +185,7 @@ var config = new configObj(
 
 var data = new configObj(
     {
-        'obj': false,
+
     },
     "data_"
 );
@@ -431,9 +449,6 @@ function determinePageInfo(){
 
     var qparams = getQueryParams(window.location.search);
 
-    //always grab the username of person running script
-    pageinfo.username = $( "#navbar-login a" ).text();
-
     switch(loc){
         //we're at the index page (probably?)
         case "forum.php": case "":
@@ -583,6 +598,17 @@ function determinePageInfo(){
             pageinfo.unknown = true;
             break;
     }
+    
+    //always grab the username of person running script
+    var myuserguy = $( "#navbar-login > a");
+    if(myuserguy.text() === "Placeholder"){
+        var myname = data.get("username");
+        myuserguy.find("strong").text(myname || "Unknown");
+        myuserguy.attr("href", "member.php?u=" + (data.get("userid") || 0));
+    }
+    pageinfo.username = myuserguy.text();
+    pageinfo.userid = parseInt(getQueryParams(myuserguy.attr("href")).u, 10);
+
 }
 
 //used when viewing a thread or any other pages that have posts on it
@@ -745,7 +771,7 @@ function populateCSS() {
 
     // chat functionality
     ourcss += "\r\n body { margin-bottom: 2em; }";
-    ourcss += "\r\n .chatbutton{ position:fixed; bottom:0; right:0em; padding: .4em 1em; background: #fff; border:1px solid #222; cursor: pointer; }";
+    ourcss += "\r\n .chatbutton{ position:fixed; z-index: 2; bottom:0; right:0em; padding: .4em 1em; background: #fff; border:1px solid #222; cursor: pointer; }";
     ourcss += "\r\n #sidebar { float: right; width: 40%; background: rgba(255,255,255,.8); margin-top: 1em;}";
     ourcss += "\r\n #sidebar h2 { font-size: 12pt; font-weight: bold; padding: .5em;}";
     ourcss += "\r\n #disqus_thread { margin: 2em; }";
@@ -816,25 +842,57 @@ function createOptionsMenu(){
     document.body.textContent = "Loading page!!";
     
     unsafeWindow.document.documentElement.innerHTML = GM_getResourceText("FLCONFIGPAGE");
-    
-    //addNavbarLinks();
 
     $("#usercp_nav .active").attr("class", "inactive");
     $("#breadcrumb #lastelement").text("Facelift Configuration");
 
     addOptionToUserCP(true);
+
+    var myconfigbody = $(document.createElement("div"))
+        .addClass("blockbody formcontrols settings_form_border");
+
     
-    //old janky version below
-    /*$.get( "/profile.php?do=editattachments" , function( data ) {
-        unsafeWindow.document.documentElement.innerHTML = data;
-        addNavbarLinks();
+    //create a temporary function to prettily print stuff and reduce redundancy
+    var tempfunc = function(wef, header, edit){
+        var mytable = $(document.createElement("table"));
+        mytable.addClass("facelift_config");
+        
+        myconfigbody.append($(document.createElement("h3"))
+            .addClass("blocksubhead")
+            .text(header)
+        ).append($(document.createElement("div"))
+            .addClass("section")
+            .append(mytable)
+        );
+        
+        mytable.append($(document.createElement("tr"))
+            .append($(document.createElement("th"))
+                .text("Key")
+                .addClass("facelift_config key")
+            )
+            .append($(document.createElement("th"))
+                .text("Value")
+                .addClass("facelift_config value")
+            )
+        );
+        
+        for(var i = 0; i < wef.length; i++){
+            var mykey = Object.keys(wef[i])[0];
+            config.prettyPrint(mytable, mykey, wef[i][mykey], edit);
+        }
+    };
 
-        $("#usercp_nav .active").attr("class", "inactive");
-        $("#breadcrumb #lastelement").text("Facelift Configuration");
-        $("#attachmentlist").remove();
-
-        addOptionToUserCP(true);
-    });*/
+    tempfunc(config.list(), "Config", true);
+    tempfunc(data.list(), "Data", false);
+    
+    $("#usercp_content > div").append($(document.createElement("div"))
+        .addClass("block")
+        .append($(document.createElement("h2"))
+            .addClass("blockhead")
+            .text("Edit Facelift Options")
+        )
+        .append(myconfigbody)
+    );
 }
 
 function addNavbarLinks(){
@@ -852,8 +910,16 @@ function addNavbarLinks(){
         .appendTo($("#navbar-login .buttons"));
 }
 
-function init() {
+function firstTimeRun(){
+    $.growl({ title: "Facelift", message: "This is your first time running facelift!", location: "tc"});
+    var myuserguy = $( "#navbar-login > a");
+    data.set("username", myuserguy.text());
+    data.set("userid", parseInt(getQueryParams(myuserguy.attr("href")).u, 10));
+    
+    
+}
 
+function init() {
     determinePageInfo();
     console.log(pageinfo);
     
@@ -861,5 +927,12 @@ function init() {
     addNavbarLinks();
     
     sidebar.init();
+    
+    //do some stuff if it's the first time running the script
+    var firsttime = data.get("firsttime");
+    if(typeof(firsttime) === 'undefined' || firsttime === true){
+        firstTimeRun();
+        data.set("firsttime", false);
+    }
 }
 init();
