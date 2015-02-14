@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.7.0
+// @version     0.7.1
 // @require     jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @require     jsonfn.js
@@ -80,7 +80,7 @@ var configObj = function (prefix, settings, descriptions) {
     this.set = function(name, value) {
         //just fucken stringify everything who cares!!!
         value = JSONfn.stringify(value);
-        console.log("Set the value of " + this.prefix + name + " to: " + value);
+        //console.log("Set the value of " + this.prefix + name + " to: " + value);
         GM_setValue(this.prefix + name, value);
     };
     this.get = function(name) {
@@ -133,12 +133,14 @@ var configObj = function (prefix, settings, descriptions) {
         
         return keys.map(function(key) {
             var t = {};
-            t[key] = GM_getValue(key);
+            //t[key] = mythis.get(key);
+            t[key] = JSONfn.parse(GM_getValue(key));
             return t;
         });
     };
     this.prettyPrint = function(node, key, value, edit, del){
-        value = JSONfn.parse(value);
+        console.log(key, value);
+        //value = JSONfn.parse(value);
         
         //used in clicks
         var mythis = this;
@@ -732,30 +734,35 @@ function registerScript(obj){
 }
 //actual register function. shouldn't be called directly in custom scripts
 function registerScriptReal(isRoot, obj){
-    scripts.set(obj.shortname, obj);
+    scripts.set((obj.order || 0) + "_" + obj.shortname, obj);
+    obj.install();
+    obj.load();
 }
 
 //try to go through execute our installed scripts
 function executeScripts(){
     var myscripts = scripts.list();
-
+    console.log("Scripts: ", myscripts);
+    
     for(var i = 0; i < myscripts.length; i++){
-        var myscript = myscripts[i];
+        var mykey = Object.keys(myscripts[i])[0];
         try{
-            myscript.load();
+            myscripts[i][mykey].load();
         } catch (e){
             logerror(e);
         }
     }
+    
 }
 
 executeScripts();
 
 //do some stuff if it's the first time running the script
-if(typeof(data) === 'undefined' || typeof(data.get("firsttime")) === 'undefined' || data.get("firsttime") === true){
+if(typeof(data) === 'undefined' || (typeof(data.get("firsttime")) === 'undefined' || data.get("firsttime") === true)){
 
     //install base scripts here
-        
+    scripts.resetAll();
+    
     /* handles our configuration settings on a global scale
      * unfortunately we can't put our configObj into here because scripts uses it too
      * and we can't instantiate scripts from inside of a script itself... yet
@@ -765,6 +772,7 @@ if(typeof(data) === 'undefined' || typeof(data.get("firsttime")) === 'undefined'
         "author": "HeroicPillow",
         "name": "Config Handler",
         "shortname": "confighandler",
+        "order": 0,
         
         "load": function(){
             window.config = new configObj("settings_",
@@ -789,6 +797,7 @@ if(typeof(data) === 'undefined' || typeof(data.get("firsttime")) === 'undefined'
         "author": "HeroicPillow",
         "name": "Utility Functionality",
         "shortname": "utilityfunc",
+        "order": 0,
         
         "load": function(){
             //pretty useful for large arrays
@@ -878,9 +887,10 @@ if(typeof(data) === 'undefined' || typeof(data.get("firsttime")) === 'undefined'
         "author": "HeroicPillow",
         "name": "Facelift",
         "shortname": "facelift",
+        "order": 1,
         
         "load": function(){
-            this.setupGlobals();
+            if(typeof(window.data) === 'undefined') this.setupGlobals();
         
             this.determinePageInfo();
             console.log(pageinfo);
@@ -891,6 +901,8 @@ if(typeof(data) === 'undefined' || typeof(data.get("firsttime")) === 'undefined'
             sidebar.init();
         },
         "install": function(){
+            this.setupGlobals();
+        
             $.growl({ title: "Facelift", message: "This is your first time running facelift!", location: "tc"});
             var myuserguy = $( "#navbar-login > a");
             data.set("username", myuserguy.text());
