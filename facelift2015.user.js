@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.7.1
+// @version     0.7.2
 // @require     jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @require     jsonfn.js
@@ -139,8 +139,7 @@ var configObj = function (prefix, settings, descriptions) {
         });
     };
     this.prettyPrint = function(node, key, value, edit, del){
-        console.log(key, value);
-        //value = JSONfn.parse(value);
+        //console.log(key, value);
         
         //used in clicks
         var mythis = this;
@@ -710,6 +709,7 @@ function createOptionsMenu(){
     //allow editing/resetting of config, but not data
     tempfunc(config, "Config", true, true);
     tempfunc(data, "Data", false, false);
+    tempfunc(scripts, "Scripts", false, false);
     
     $("#usercp_content > div").append($(document.createElement("div"))
         .addClass("block")
@@ -734,9 +734,30 @@ function registerScript(obj){
 }
 //actual register function. shouldn't be called directly in custom scripts
 function registerScriptReal(isRoot, obj){
-    scripts.set((obj.order || 0) + "_" + obj.shortname, obj);
+    var baseorder = (isRoot)? 'a' : 'b';
+
+    scripts.set(baseorder + "_" + numToLetters(obj.order || 0) + "_" + obj.shortname, obj);
     obj.install();
     obj.load();
+}
+
+/* turns a number into something that can be used with alphabetical order
+ * worst code ever made tbh
+ */
+function numToLetters(n) {
+    var ordA = 'a'.charCodeAt(0);
+    var ordZ = 'z'.charCodeAt(0);
+    var len = ordZ - ordA + 1;
+    
+    var s = "";
+    var temp = 0;
+    while(n >= 0) {
+        if(n >= len) temp = len-1;
+        else temp = n;
+        s = s + String.fromCharCode(temp + ordA);
+        n = n - len;
+    }
+    return s;
 }
 
 //try to go through execute our installed scripts
@@ -1112,10 +1133,11 @@ if(typeof(data) === 'undefined' || (typeof(data.get("firsttime")) === 'undefined
                     break;
             }
             
-            //always grab the username of person running script
+            //always grab/set the username of person running script
             var myuserguy = $( "#navbar-login > a");
             if(myuserguy.text() === "Placeholder"){
                 var myname = data.get("username");
+                if(myname === "") data.reset("username");
                 myuserguy.find("strong").text(myname || "Unknown");
                 myuserguy.attr("href", "member.php?u=" + (data.get("userid") || 0));
             }
