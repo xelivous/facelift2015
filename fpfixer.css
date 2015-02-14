@@ -311,6 +311,9 @@ div#footer {
 video{
     max-width:95%;
 }
+.popupbox{
+    z-index:10000;
+}
 .usertitle * font[size], .usertitle font[size], .usertitle * font[size="7"], .usertitle font[size="7"]{font-size:160% !important;}
 .usertitle * font[size="6"], .usertitle font[size="6"]{font-size:140% !important;}
 .usertitle * font[size="5"], .usertitle font[size="5"]{font-size:130% !important;}
