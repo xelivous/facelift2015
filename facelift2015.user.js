@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.8.0
+// @version     0.8.1
 // @require     jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @require     jsonfn.js
@@ -408,8 +408,8 @@ function registerScriptReal(isRoot, obj){
     
     //if we already have the script installed
     if(typeof(updatecheck) !== 'undefined'){
-        //if our installed version is higher than our new version, set it to load, but don't call install
-        if(compareVersionNumbers(updatecheck.version, obj.version)){
+        //if our installed version is lower than our new version, set it to load, but don't call install
+        if(!compareVersionNumbers(updatecheck.version, obj.version)){
             logger("Updating script [" + obj.name + "] to version (" + obj.version + ")");
             doinstall = true;
         }
@@ -494,7 +494,8 @@ function handleScriptChecks(){
     //check for our greasemonkey script version, and compare it to our last run to see if it updated
     //also run on the first time too
     var lastversion = data.get("lastversion");
-    if(lastversion !== GM_info.script.version || data.get("firsttime") === true){ //need to update
+    console.log(lastversion, GM_info.script.version, compareVersionNumbers(lastversion, GM_info.script.version));
+    if(!compareVersionNumbers(lastversion, GM_info.script.version) || data.get("firsttime") === true){ //need to update
         data.set("lastversion", GM_info.script.version);
         logger("Updated Greasemonkey Script to: " + GM_info.script.version);
 
