@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.8.1
+// @version     0.8.5
 // @require     jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @require     jsonfn.js
@@ -116,6 +116,18 @@ var configObj = function (prefix, settings, descriptions) {
         var mythis = this; //hack
         keys.map(function(key) {
             if(key.indexOf(mythis.prefix) !== -1){
+                console.log("Deleted key: ", key);
+                GM_deleteValue(key);
+            }
+        });
+    };
+    this.resetAllContains = function(search){
+        //HACK: greasemonkey keeps having GM_ListValues() break and this is a bad workaround
+        //https://github.com/greasemonkey/greasemonkey/issues/2033
+        var keys = cloneInto(GM_listValues(), window);
+        var mythis = this; //hack
+        keys.map(function(key) {
+            if(key.indexOf(mythis.prefix) !== -1 && key.indexOf(search) !== -1){
                 console.log("Deleted key: ", key);
                 GM_deleteValue(key);
             }
@@ -420,7 +432,11 @@ function registerScriptReal(isRoot, obj){
         doinstallfunc = true;
     }
     
-    if(doinstall) scripts.set(mystring, obj);
+    if(doinstall){
+        //remove all instances of script based on the shortname to prevent conflicts
+        scripts.resetAllContains(obj.shortname);
+        scripts.set(mystring, obj);
+    }
     if(doinstallfunc && typeof(obj.install) !== 'undefined') obj.install();
 }
 
@@ -494,7 +510,6 @@ function handleScriptChecks(){
     //check for our greasemonkey script version, and compare it to our last run to see if it updated
     //also run on the first time too
     var lastversion = data.get("lastversion");
-    console.log(lastversion, GM_info.script.version, compareVersionNumbers(lastversion, GM_info.script.version));
     if(!compareVersionNumbers(lastversion, GM_info.script.version) || data.get("firsttime") === true){ //need to update
         data.set("lastversion", GM_info.script.version);
         logger("Updated Greasemonkey Script to: " + GM_info.script.version);
@@ -598,7 +613,7 @@ function handleScriptChecks(){
          * still need to make it less cumbersome and modular
          */
         registerScriptReal(true, {
-            "version": "0.0.1",
+            "version": "0.0.2",
             "author": "HeroicPillow",
             "name": "Facelift",
             "shortname": "facelift",
