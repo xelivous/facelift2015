@@ -3,7 +3,7 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.8.5
+// @version     0.9.5
 // @require     jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @require     jsonfn.js
@@ -17,6 +17,8 @@
 // @grant       GM_getResourceText
 // @grant       GM_info
 // ==/UserScript==
+"use strict";
+
 function logger() {
     var args = Array.prototype.slice.call(arguments);
     var mymessage = args.map(function(num){return JSONfn.stringify(num) + "\n";}).join(" ");
@@ -72,6 +74,201 @@ var icons = {
     'faceliftcp':   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA8AAAAQCAYAAADJViUEAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAQxJREFUeNp8U1ENwkAM3V0QcBLAwXAAyf4BB6AAJgEFgIKBAnAAKAAJc7A5GC15JS9l0ORl1+u9tu96C0VRZM6WgrUgd/sXwUFws41IQT38EFQ9RLW54CrYefIQASNtBQHV1Fbwa8EGBbKAtpU4oSqB1l2Pr1ZGtDNxLT7wbfA9O19treQZnD0qlKQ/kd6O/LfUSDpLSqI2du1+GZObntZMb/hFbrFOuLjkiB0kWJKnzT2So21PMRZfObfxkJyFkk9O67GnwzFeXsWXFvEQWppf44gVurMEH2mmeUFtJke2C7UEuT3RAQI3aN39IXMCvcCWf4wjApfsv2mCkeA+cIEaEhIq5jQNf65+CTAAkBpA6/X4W+8AAAAASUVORK5CYII=',
 };
 
+//utility functions used in scripts
+var util = {
+    //add to our existing stylesheet if it's already there, or add it to the bottom of the page to prevent overwriting by default css
+    "appendCSS": function(str){
+        var mycssthing = document.getElementById('FP_CSS');
+
+        if (mycssthing) {
+            mycssthing.textContent = mycssthing.textContent + "\r\n" + str;
+        } else {
+            var style = document.createElement('style');
+            style.type = 'text/css';
+            style.id = 'FP_CSS';
+            style.textContent = str;
+            document.body.appendChild(style);
+        }
+    },
+
+    //adds a navbar link to the header on FP
+    "addNavbarLink": function(name, onclick, icon){
+        var mya = $(document.createElement('a')).text(name)
+        .append(
+            $(document.createElement('img'))
+            .attr({
+                alt: name,
+                title: name,
+                src: (icons[icon] || icons['more'])
+        }));
+
+
+        if(typeof(onclick) === 'function'){
+            mya.click(function(event){
+                event.preventDefault();
+                onclick();
+            }).attr("href", "");
+        } else {
+            mya.attr("href", onclick);
+        }
+
+        $(document.createElement('div')).addClass("navbarlink")
+        .append(mya)
+        .insertBefore("#navbarlinks .navbarlink:last-child");
+    },
+    
+    "addOptionToUserCP": function(displayName, url, makeActive){
+        var myfacelift = $("#usercp_nav .block:last-of-type .blockbody > ul > .facelift");
+        var mylist;
+        
+        //if we haven't added one yet
+        if(myfacelift.length == 0){
+            //select the "my account" portion of the navigation
+            var myaccount = $("#usercp_nav .block:last-of-type .blockbody > ul > li:nth-child(2)");
+
+            myfacelift = $(document.createElement("li"));
+            myfacelift.addClass("facelift")
+            .append($(document.createElement("h3"))
+                .addClass("blocksubhead")
+                .text(" Facelift")
+                .prepend($(document.createElement("img"))
+                    .addClass("usercpimage")
+                    .attr("alt", "Facelift")
+                    .attr("src", icons['faceliftcp'])
+                )
+            ).append($(document.createElement("ul"))
+                .addClass("blockrow")
+            ).insertAfter(myaccount);
+        }
+        
+        //remove all other active classes
+        if(makeActive) {
+            $("#usercp_nav .active").toggleClass("active inactive");
+        }
+        
+        myfacelift.find("ul").append($(document.createElement("li"))
+            .addClass((makeActive)? "active" : "inactive" )
+            .append($(document.createElement("a"))
+                .attr("href", url)
+                .text(displayName)
+            )
+        );
+        
+    },
+    
+    //pretty useful for large arrays
+    "arrayContains": function(needle, arrhaystack) {
+        return arrhaystack.indexOf(needle) > -1;
+    },
+
+    //i'm pretty sure stringify/parse already does this though
+    "sescape": function(v) {
+        return v.replace(/&/, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+    },
+
+    /* Takes the specified url, and gives you a nicely formatted way to access the get variables
+     * Example: http://dumb.url/?f=3&d=butt&u=me
+     *     obj.f = 3
+     *     obj.d = "butt"
+     *     obj.u = "me"
+     */
+    "getQueryParams": function(qs) {
+        var vars = {};
+        var parts = qs.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
+            vars[key] = value;
+        });
+        return vars;
+    },
+
+    /* Parses VBulletin timestamps into an actual usable Date object
+     * pls kill me
+     */
+    "actualTime": function(time){
+        //we use timezone to put the relative times back into UTC
+        var timezone = data.get("timezone");
+        if(!timezone) timezone = grabTimeZone(); //defined in scraper script
+        if(!timezone) return; //i have no idea what happened
+
+        var mytime = time.split(" ");
+
+        if(mytime.length === 3){
+            if(mytime[2].toLowerCase().indexOf("ago") === -1){
+                //using absolute time -- super ez
+                mytime = mytime[1] + " " + /\d*/g.exec(mytime[0]) + ", " + mytime[2];
+                time = new Date( Date.parse( mytime ) );
+            } else {
+                //using relative time -- just a tiny bit harder
+                //has a console.log bug where it won't log to console until the end of this block and everything has already changed??
+                var time = new Date();
+                mytime[0] = parseInt(mytime[0], 10);
+                mytime[1] = mytime[1].toLowerCase();
+
+
+                switch(mytime[1]){
+                    case "days": case "day":
+                        time.setDate( time.getDate() - mytime[0] );
+                        break;
+                    case "hours": case "hour":
+                        time.setHours( time.getHours() - mytime[0] );
+                        break;
+                    case "minutes": case "minute":
+                        time.setMinutes( time.getMinutes() - mytime[0] );
+                        break;
+                    case "seconds": case "seconds":
+                        time.setSeconds( time.getSeconds() - mytime[0] );
+                        break;
+                }
+            }
+        } else {
+            time = new Date();
+        }
+
+        //timezone fixer
+        time.setHours(time.getHours() + timezone);
+
+        return time;
+    },
+    
+    "prepUCPMenu": function(title, subtitle){
+        document.body.textContent = "Loading page!!";
+        unsafeWindow.document.documentElement.innerHTML = GM_getResourceText("FLCONFIGPAGE");
+
+        $("#usercp_nav .active").attr("class", "inactive");
+        $("#breadcrumb #lastelement").text(title || "UserCP");
+        
+        // modify timestamp at bottom of page
+        var timezone = data.get("timezone");
+        if(timezone) timezone *= -1;
+        var mydate = new Date();
+        $("#footer_time").html("All times are GMT " + timezone + ". The time now is <span class=\"time\">" + mydate.toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'}) + "</span>.");
+
+        var myuserguy = $( "#navbar-login > a");
+        if(myuserguy.text() === "Placeholder"){
+            var myname = data.get("username");
+            if(myname === ""){
+                data.reset("username");
+                myname = "Unknown";
+            }
+            myuserguy.find("strong").text(myname);
+            myuserguy.attr("href", "member.php?u=" + (data.get("userid") || 0));
+            pageinfo.username = myname;
+            pageinfo.userid = parseInt(util.getQueryParams(myuserguy.attr("href")).u, 10);
+        }
+        
+        var myoutput = $(document.createElement("div"));
+        
+        $("#usercp_content > div").append(myoutput
+            .addClass("block")
+            .append($(document.createElement("h2"))
+                .addClass("blockhead")
+                .text(subtitle || "UserCP")
+            )
+        );
+        
+        return myoutput;
+    }
+};
+
 //OOP config object
 var configObj = function (prefix, settings, descriptions) {
     this.settings = settings;
@@ -86,13 +283,17 @@ var configObj = function (prefix, settings, descriptions) {
         //console.log("Set the value of " + this.prefix + name + " to: " + value);
         GM_setValue(this.prefix + name, value);
     };
-    this.get = function(name) {
+    this.update = function(name, value){
+        //super hacky
+        this.set(name.substr(this.prefix.length), value);
+    };
+    this.get = function(name, def) {
         var value = GM_getValue(this.prefix + name);
 
         // nothing is set yet, so make sure to set our default for easy configuration
         if(!value) {
-            value = this.settings[name];
-            if(value) this.set(name, value);
+            value = def || this.settings[name];
+            if(typeof(value) !== 'undefined') this.set(name, value);
             return value;
         }
 
@@ -126,8 +327,10 @@ var configObj = function (prefix, settings, descriptions) {
         //https://github.com/greasemonkey/greasemonkey/issues/2033
         var keys = cloneInto(GM_listValues(), window);
         var mythis = this; //hack
+        
+        //use a substr to check if that last section of it is identical or not
         keys.map(function(key) {
-            if(key.indexOf(mythis.prefix) !== -1 && key.indexOf(search) !== -1){
+            if(key.indexOf(mythis.prefix) !== -1 && key.substr(key.length - search.length) === search){
                 console.log("Deleted key: ", key);
                 GM_deleteValue(key);
             }
@@ -210,10 +413,47 @@ var configObj = function (prefix, settings, descriptions) {
             )
         }
     };
+    this.prettyPrintList = function(target){
+        var mytable = $(document.createElement("table"));
+        mytable.addClass("facelift_config");
+    
+        target.append($(document.createElement("h3"))
+            .addClass("blocksubhead")
+            .text(this.displayName || "Header")
+        ).append($(document.createElement("div"))
+            .addClass("section")
+            .append(mytable)
+        );
+
+        var myrow = $(document.createElement("tr"));
+        mytable.append(myrow);
+
+        myrow.append($(document.createElement("th"))
+                .text("Key")
+                .addClass("facelift_config key")
+            )
+            .append($(document.createElement("th"))
+                .text("Value")
+                .addClass("facelift_config value")
+            );
+            
+        if(this.allowDelete === true){
+            myrow.prepend($(document.createElement("th"))
+                .text("Delete")
+                .addClass("facelift_config delete")
+            );
+        }
+
+        var mylist = this.list();
+        for(var i = 0; i < mylist.length; i++){
+            var mykey = Object.keys(mylist[i])[0];
+            this.prettyPrint(mytable, mykey, mylist[i][mykey]);
+        }
+    };
 };
 
 //make a list of this stuff
-configList = [];
+var configList = [];
 function registerConfigObject(wef){
     configList[configList.length] = wef;
 };
@@ -242,9 +482,7 @@ data.displayName = "Global Data";
 
 var config = new configObj("settings_",
     {
-        'debug': true,
-        'shrinkimages': true,
-        'showchat': false,
+        'debug': false,
     }
 );
 config.displayName = "General Configuration";
@@ -363,47 +601,6 @@ var popup = {
 };
 
 
-function addNavbarLink(name, onclick, icon){
-    var mya = $(document.createElement('a')).text(name)
-    .append(
-        $(document.createElement('img'))
-        .attr({
-            alt: name,
-            title: name,
-            src: (icons[icon] || icons['more'])
-    }));
-
-
-    if(typeof(onclick) === 'function'){
-        mya.click(function(event){
-            event.preventDefault();
-            onclick();
-        }).attr("href", "");
-    } else {
-        mya.attr("href", onclick);
-    }
-
-    $(document.createElement('div')).addClass("navbarlink")
-    .append(mya)
-    .insertBefore("#navbarlinks .navbarlink:last-child");
-}
-
-function appendCSS(str){
-    //replace our existing stylesheet if it's already there, or add it to the bottom of the page to prevent overwriting
-    var mycssthing = document.getElementById('FP_CSS');
-
-    if (mycssthing) {
-        mycssthing.textContent = mycssthing + "\r\n" + str;
-    } else {
-        var style = document.createElement('style');
-        style.type = 'text/css';
-        style.id = 'FP_CSS';
-        style.textContent = str;
-        document.body.appendChild(style);
-    }
-}
-
-
 //interface for api
 function registerScript(obj){
     // make sure that the script being passed isn't run as a root script
@@ -417,6 +614,7 @@ function registerScriptReal(isRoot, obj){
     var updatecheck = scripts.get(mystring);
     var doinstallfunc = false;
     var doinstall = false;
+    var dofirstrun = true;
     
     //if we already have the script installed
     if(typeof(updatecheck) !== 'undefined'){
@@ -424,6 +622,9 @@ function registerScriptReal(isRoot, obj){
         if(!compareVersionNumbers(updatecheck.version, obj.version)){
             logger("Updating script [" + obj.name + "] to version (" + obj.version + ")");
             doinstall = true;
+        }
+        if(updatecheck.firstrun === false){
+            dofirstrun = false;
         }
     } else { 
         console.log("Installing script for first time: ", obj);
@@ -435,6 +636,11 @@ function registerScriptReal(isRoot, obj){
     if(doinstall){
         //remove all instances of script based on the shortname to prevent conflicts
         scripts.resetAllContains(obj.shortname);
+        
+        //set some variables that need to be set first
+        obj.firstrun = dofirstrun;
+        
+        //actually store our script now
         scripts.set(mystring, obj);
     }
     if(doinstallfunc && typeof(obj.install) !== 'undefined') obj.install();
@@ -486,22 +692,57 @@ function numToLetters(n) {
     }
     return s;
 }
-
 //try to go through execute our installed scripts
 function executeScripts(){
     var myscripts = scripts.list();
 
-    for(var i = 0; i < myscripts.length; i++){
-        var mykey = Object.keys(myscripts[i])[0];
-        if(myscripts[i][mykey].load){
-            try{
-                myscripts[i][mykey].load();
-            } catch (e){
-                logerror(e);
-            }
+    executeScriptLoop(myscripts, function(script, key){
+        if(script.load) script.load();
+    
+        // make sure we set that we've run the script already once before
+        if(script.firstrun === true) {
+            script.firstrun = false;
+            console.log(key + " ran for the first time!");
+            
+            //holy fuk this is hacky
+            scripts.update(key, script);
         }
+    });
+    
+    //isn't really used for much but can be useful for completely overhauling pages
+    executeScriptLoop(myscripts, function(script, key){
+        if(script.loadLate) script.loadLate();
+    });
+    
+    //process threads if we're looking at a forum view
+    if(pageinfo.forum === true){
+        var threads = $("#threads .threadbit");
+    
+        threads.each(function(index){
+            var thread = $(this);
+            executeScriptLoop(myscripts, function(script){
+                if(script.onThread){ 
+                    script.onThread(thread);
+                }
+            });
+        });
     }
 
+}
+
+function executeScriptLoop(myscripts, callback){
+    if(!callback) return false;
+    
+    for(var i = 0; i < myscripts.length; i++){
+        var mykey = Object.keys(myscripts[i])[0];
+        var myscript = myscripts[i][mykey];
+        
+        try{
+            callback(myscript, mykey);
+        } catch (e){
+            logerror(e);
+        }
+    }
 }
 
 
@@ -514,127 +755,30 @@ function handleScriptChecks(){
         data.set("lastversion", GM_info.script.version);
         logger("Updated Greasemonkey Script to: " + GM_info.script.version);
 
-         /* handles our configuration settings on a global scale
-         * unfortunately we can't put our configObj into here because scripts uses it too
-         * and we can't instantiate scripts from inside of a script itself...
-         */
-
-        
-        /* helper functions to make life easier.
-         * shouldn't outright execute anything, only set up globals for use later
-         */
-        registerScriptReal(true, {
-            "version": "0.0.1",
-            "author": "HeroicPillow",
-            "name": "Utility Functionality",
-            "shortname": "utilityfunc",
-            "order": 0,
-
-            "load": function(){
-                //pretty useful for large arrays
-                window.arrayContains = function(needle, arrhaystack) {
-                    return arrhaystack.indexOf(needle) > -1;
-                };
-
-                //i'm pretty sure stringify/parse already does this though
-                window.sescape = function(v) {
-                    return v.replace(/&/, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
-                };
-
-                /* Takes the specified url, and gives you a nicely formatted way to access the get variables
-                 * Example: http://dumb.url/?f=3&d=butt&u=me
-                 *     obj.f = 3
-                 *     obj.d = "butt"
-                 *     obj.u = "me"
-                 */
-                window.getQueryParams = function(qs) {
-                    var vars = {};
-                    var parts = qs.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
-                        vars[key] = value;
-                    });
-                    return vars;
-                };
-
-                /* Parses VBulletin timestamps into an actual usable Date object
-                 * pls kill me
-                 */
-                window.actualTime = function(time){
-                    //we use timezone to put the relative times back into UTC
-                    var timezone = data.get("timezone");
-                    if(!timezone) timezone = grabTimeZone(); //defined in scraper script
-                    if(!timezone) return; //i have no idea what happened
-
-                    var mytime = time.split(" ");
-
-                    if(mytime.length === 3){
-                        if(mytime[2].toLowerCase().indexOf("ago") === -1){
-                            //using absolute time -- super ez
-                            mytime = mytime[1] + " " + /\d*/g.exec(mytime[0]) + ", " + mytime[2];
-                            time = new Date( Date.parse( mytime ) );
-                        } else {
-                            //using relative time -- just a tiny bit harder
-                            //has a console.log bug where it won't log to console until the end of this block and everything has already changed??
-                            var time = new Date();
-                            mytime[0] = parseInt(mytime[0], 10);
-                            mytime[1] = mytime[1].toLowerCase();
-
-
-                            switch(mytime[1]){
-                                case "days": case "day":
-                                    time.setDate( time.getDate() - mytime[0] );
-                                    break;
-                                case "hours": case "hour":
-                                    time.setHours( time.getHours() - mytime[0] );
-                                    break;
-                                case "minutes": case "minute":
-                                    time.setMinutes( time.getMinutes() - mytime[0] );
-                                    break;
-                                case "seconds": case "seconds":
-                                    time.setSeconds( time.getSeconds() - mytime[0] );
-                                    break;
-                            }
-                        }
-                    } else {
-                        time = new Date();
-                    }
-
-                    //timezone fixer
-                    time.setHours(time.getHours() + timezone);
-
-                    return time;
-                };
-            },
-            "install": function(){
-                this.load();
-            },
-        });
-
         /* base scraper functionality
          * still need to make it less cumbersome and modular
          */
         registerScriptReal(true, {
-            "version": "0.0.2",
+            "version": "0.1.1",
             "author": "HeroicPillow",
-            "name": "Facelift",
-            "shortname": "facelift",
+            "name": "Scraper",
+            "shortname": "scraper",
+            "description": "Fetches/parses useful information about the page you are currently browsing for usage in other scripts.",
             "order": 1,
 
             "load": function(){
                 this.setupGlobals();
                 this.determinePageInfo();
-                this.populateCSS();
                 
                 if(config.get("debug") === true) console.log("Page Info: ", pageinfo);
                 
-                var firstrun = data.get("scraper_first");
-                if(typeof(firstrun) === 'undefined' || firstrun === true){
+                if(this.firstrun === true){
                     //make sure some values are set
                     var myuserguy = $( "#navbar-login > a");
                     data.set("username", myuserguy.text());
-                    data.set("userid", parseInt(getQueryParams(myuserguy.attr("href")).u, 10));
+                    data.set("userid", parseInt(util.getQueryParams(myuserguy.attr("href")).u, 10));
 
                     grabTimeZone();
-                    data.set("scraper_first", false);
                 }
             },
             "setupGlobals": function(){
@@ -658,8 +802,7 @@ function handleScriptChecks(){
             },
             "determinePageInfo": function(){
                 window.pageinfo = {}; //make a global variable for us to use
-                var loc = window.location.pathname;
-                loc = loc.substr(1); //remove leading slash
+                var loc = window.location.pathname.substr(1); //get our page/queries, and remove leading slash
 
                 var te = loc.indexOf("/"); //still have slash?
                 if(te !== -1){
@@ -671,7 +814,7 @@ function handleScriptChecks(){
                     }
                 }
 
-                var qparams = getQueryParams(window.location.search);
+                var qparams = util.getQueryParams(window.location.search);
                 pageinfo.qparams = qparams;
 
                 switch(loc){
@@ -685,9 +828,7 @@ function handleScriptChecks(){
                         pageinfo.forum = true;
                         pageinfo.forumName = $( "#lastelement span" ).text();
                         pageinfo.forumID = parseInt(qparams.f, 10);
-
-                        this.processThreads();
-
+                        pageinfo.hasThreadList = true;
                         break;
 
                     //viewing thread
@@ -696,18 +837,16 @@ function handleScriptChecks(){
 
                         //Find "breadcrumb" in header, take last span, find the "a" tag inside of it
                         pageinfo.forumName = $( "#breadcrumb :last-of-type a" ).text();
-                        pageinfo.forumID =  parseInt(getQueryParams($( "#breadcrumb :last-of-type a" )[0].href).f,10);
+                        pageinfo.forumID =  parseInt(util.getQueryParams($( "#breadcrumb :last-of-type a" )[0].href).f,10);
                         pageinfo.threadName = $( "#lastelement span" ).text();
                         //it's possible to be on thread page without specifiying "t" in the url
                         //so we fetch the permalink of the first post instead #yolo
-                        pageinfo.threadID = parseInt(getQueryParams($("a.postcounter")[0].href).t, 10);
+                        pageinfo.threadID = parseInt(util.getQueryParams($("a.postcounter")[0].href).t, 10);
                         pageinfo.pageNum = parseInt(qparams.page, 10) || 1;
 
                         if ($("#pollinfo").length ){
                             pageinfo.hasPoll = true;
                         }
-
-                        this.processPosts();
                         break;
 
                     //posting a new thread
@@ -723,7 +862,7 @@ function handleScriptChecks(){
                     //making a sicknasty reply
                     case "newreply/": case "newreply.php":
                         pageinfo.newreply = true;
-                        pageinfo.threadID = parseInt(getQueryParams($( "#breadcrumb :last-of-type a" )[0].href).t,10);
+                        pageinfo.threadID = parseInt(util.getQueryParams($( "#breadcrumb :last-of-type a" )[0].href).t,10);
                         pageinfo.threadName = $( "#breadcrumb span:last-of-type a" ).text();
                         pageinfo.postID = parseInt(qparams.p || 0,10);
                         break;
@@ -767,8 +906,7 @@ function handleScriptChecks(){
 
                     case "read/": case "fp_read.php":
                         pageinfo.read = true;
-                        
-                        this.processThreads();
+                        pageinfo.hasThreadList = true;
                         break;
 
                     case "subscription/": case "subscription.php":
@@ -819,62 +957,21 @@ function handleScriptChecks(){
                 var myuserguy = $( "#navbar-login > a");
                 if(myuserguy.length > 0){
                     pageinfo.username = myuserguy.text();
-                    pageinfo.userid = parseInt(getQueryParams(myuserguy.attr("href")).u, 10);
+                    pageinfo.userid = parseInt(util.getQueryParams(myuserguy.attr("href")).u, 10);
                 }
             },
-            "populateCSS": function(){
-                var ourcss = '';
-                ourcss += GM_getResourceText("GROWL_CSS") + "\n";
-                ourcss += GM_getResourceText("FPFIXER_CSS") + "\n";
-
-                //thread subscribing stuff
-                ourcss += "\r\n table#threads tr td.threadsubscribe { text-align:center; min-width: auto; }";
-                ourcss += "\r\n .threadsubscribe a { font-size: 170%; vertical-align: middle; color: #BBB !important; text-shadow: -1px -1px 0px #000, 1px 1px 0px #FFF;}";
-                ourcss += "\r\n .threadsubscribe a:hover { text-decoration: none; color: #E0DD9F !important; }";
-                ourcss += "\r\n .threadsubscribe a.subscribed { color: #FFA !important; text-shadow: 1px 0px #777, 0px 1px #777, -1px 0px #777, 0px -1px #777;}";
-
-                // chat functionality
-                ourcss += "\r\n body { margin-bottom: 2em; }";
-                ourcss += "\r\n .chatbutton{ position:fixed; z-index: 2; bottom:0; right:0em; padding: .4em 1em; background: #fff; border:1px solid #222; cursor: pointer; }";
-                ourcss += "\r\n #sidebar { float: right; width: 40%; background: rgba(255,255,255,.8); margin-top: 1em;}";
-                ourcss += "\r\n #sidebar h2 { font-size: 12pt; font-weight: bold; padding: .5em;}";
-                ourcss += "\r\n #disqus_thread { margin: 2em; }";
-                //fixing the clears for chat
-                ourcss += "\r\n #footer { z-index: 1; position: relative; clear:left; width: inherit; }";
-                ourcss += "\r\n .threadlist, .below_threadlist, .above_threadlist, .member_summary, .member_summary .block, table#threads, #content_inner, .postlist, #postlist, div.threadhead, div.threadfoot, ol#posts .postbitlegacy, ol#announcements .postbitlegacy, div#showpm > ol .postbitlegacy, ol#message_list .postbitlegacy, ol#posts .postbit, ol#announcements .postbit, div#showpm > ol .postbit, ol#message_list .postbit, ol#posts .postbitdeleted, ol#announcements .postbitdeleted, div#showpm > ol .postbitdeleted, ol#message_list .postbitdeleted { clear: left; }";
-                ourcss += "\r\n .makeroomforsidebar { margin-right: calc(40% + 1em) !important; }";
-
-
-                if(config.get('shrinkimages') === true){
-                    ourcss += "\r\n .quote { display: block; left:0; right: 1em; overflow:hidden; height:auto;}";
-                    ourcss += "\r\n .postbit .content img, .postbitlegacy .content img, .postbitdeleted .content img, .postbitignored .content img, .eventbit .content img { max-width: 100% !important; max-height: 1024px !important; }";
-                    ourcss += "\r\n .postbit .content img[class~=\"thumbnail\"], .postbitlegacy .content img[class~=\"thumbnail\"], .postbitdeleted .content img[class~=\"thumbnail\"], .postbitignored .content img[class~=\"thumbnail\"], .eventbit .content img[class~=\"thumbnail\"], div.quote div.message img { max-width: 800px !important; max-height: 350px !important; }";
-                    ourcss += "\r\n DIV.video {max-width: 100%; position:relative;}";
-                    ourcss += "\r\n DIV.video iframe {top:0; left:0; position:absolute;}";
-                }
-                else{ //someone has bad taste tbh
-                    ourcss += '\r\n blockquote.postcontent { overflow:auto !important; }';
-                }
-
-                //now we actually add our CSS to the page
-                appendCSS(ourcss);
-            },
-            "processThreads": function(){
-                var threads = $("#threads .threadbit");
-
-                pageinfo["threads"] = {};
-
-                threads.each(function(index){
-                    var thread = $(this);
-                    var threadid = parseInt(thread.attr("id").split("_")[1], 10);
-                    pageinfo["threads"][threadid] = {
-                        "id": threadid,
-                        "name": thread.find(".threadtitle > a.title").text(),
-                        "replies": parseInt(thread.find(".threadreplies").text().replace(',', ''), 10),
-                        "views": parseInt(thread.find(".threadviews").text().replace(',', ''), 10),
-                        "lastpostdate": actualTime(thread.find( ".threadlastpost > dl > dd:first-of-type" ).text())
-                    };
-                });
+            "onThread": function(thread){
+                if(!pageinfo["threads"]) pageinfo["threads"] = {};
+                
+                var threadid = parseInt(thread.attr("id").split("_")[1], 10);
+                
+                pageinfo["threads"][threadid] = {
+                    "id": threadid,
+                    "name": thread.find(".threadtitle > a.title").text(),
+                    "replies": parseInt(thread.find(".threadreplies").text().replace(',', ''), 10),
+                    "views": parseInt(thread.find(".threadviews").text().replace(',', ''), 10),
+                    "lastpostdate": util.actualTime(thread.find( ".threadlastpost > dl > dd:first-of-type" ).text())
+                };
             },
             "processPosts": function(){
                 var posts = $("#posts li");
@@ -888,7 +985,7 @@ function handleScriptChecks(){
                     //only process if the post wasn't deleted
                     if(post.attr("class").indexOf("postbitdeleted") !== -1) return false;
 
-                    var postid = parseInt(getQueryParams(post.find(".postcounter").attr("href")).p, 10);
+                    var postid = parseInt(util.getQueryParams(post.find(".postcounter").attr("href")).p, 10);
                     var userstats = post.find("#userstats").html().split("<br>");
 
                     //find the ratings, parse a list of them, store into array with keys being the name, and value being the count
@@ -907,13 +1004,13 @@ function handleScriptChecks(){
                     if(countrycode !== null) countrystats[country.attr("alt")] = countrycode[1];
 
                     //who posted this thing??
-                    var userid = parseInt(getQueryParams(post.find(".username").attr("href")).u, 10);
+                    var userid = parseInt(util.getQueryParams(post.find(".username").attr("href")).u, 10);
 
                     //values that we can easily retrieve
                     pageinfo["posts"][postid] = {
                         "id": postid,
                         "idname": "#post_" + postid,
-                        "time": actualTime(post.find( ".postdate .date" ).text()),
+                        "time": util.actualTime(post.find( ".postdate .date" ).text()),
                         "edited": ( post.find(".postdate .time").length > 0 || false ),
                         "posterid": userid,
                         "ratings": ratingsarr,
@@ -925,7 +1022,7 @@ function handleScriptChecks(){
                     };
 
                     pageinfo["users"][userid] = {
-                        "id": parseInt(getQueryParams(post.find(".username").attr("href")).u, 10),
+                        "id": parseInt(util.getQueryParams(post.find(".username").attr("href")).u, 10),
                         "name": post.find(".username").text(),
                         "title": post.find(".usertitle").text(),
                         "avatar": post.find("img[alt*=\"Avatar\"]"),
@@ -949,74 +1046,24 @@ function handleScriptChecks(){
 
         // Config menu in usercp
         registerScriptReal(true, {
-            "version": "0.0.1",
+            "version": "0.0.7",
             "author": "HeroicPillow",
             "name": "Config Menu",
             "shortname": "configmenu",
+            "description": "Allows you to customize your facelift ~experience~",
             "order": 2,
 
             "load": function(){
-                window.addOptionToUserCP = function(displayName, url, makeActive){
-                    var myfacelift = $("#usercp_nav .block:last-of-type .blockbody > ul > .facelift");
-                    var mylist;
-                    
-                    //if we haven't added one yet
-                    if(myfacelift.length == 0){
-                        //select the "my account" portion of the navigation
-                        var myaccount = $("#usercp_nav .block:last-of-type .blockbody > ul > li:nth-child(2)");
-
-                        myfacelift = $(document.createElement("li"));
-                        myfacelift.addClass("facelift")
-                        .append($(document.createElement("h3"))
-                            .addClass("blocksubhead")
-                            .text(" Facelift")
-                            .prepend($(document.createElement("img"))
-                                .addClass("usercpimage")
-                                .attr("alt", "Facelift")
-                                .attr("src", icons['faceliftcp'])
-                            )
-                        ).append($(document.createElement("ul"))
-                            .addClass("blockrow")
-                        ).insertAfter(myaccount);
-                    }
-                    
-                    //remove all other active classes
-                    if(makeActive) {
-                        $("#usercp_nav .active").toggleClass("active inactive");
-                    }
-                    
-                    myfacelift.find("ul").append($(document.createElement("li"))
-                        .addClass((makeActive)? "active" : "inactive" )
-                        .append($(document.createElement("a"))
-                            .attr("href", url)
-                            .text(displayName)
-                        )
-                    );
-                    
-                };
-                
-            
-                if(pageinfo.usercp){
-                    if(pageinfo.qparams.do === "facelift"){
-                        this.createOptionsMenu();
-
-                        var myuserguy = $( "#navbar-login > a");
-                        if(myuserguy.text() === "Placeholder"){
-                            var myname = data.get("username");
-                            if(myname === ""){
-                                data.reset("username");
-                                myname = "Unknown";
-                            }
-                            myuserguy.find("strong").text(myname);
-                            myuserguy.attr("href", "member.php?u=" + (data.get("userid") || 0));
-                            pageinfo.username = myname;
-                            pageinfo.userid = parseInt(getQueryParams(myuserguy.attr("href")).u, 10);
-                        }
-                    } else {
-                        addOptionToUserCP("Configuration", "profile.php?do=facelift", false);
-                    }
+                if(pageinfo.usercp && pageinfo.qparams.do === "facelift"){
+                    this.createOptionsMenu();
+                    this.makeactive = true;
                 }
-
+            },
+            "loadLate": function(){
+                if(pageinfo.usercp){
+                    util.addOptionToUserCP("Configuration", "profile.php?do=facelift", this.makeactive || false);
+                }
+            
                 //create link back to config menu
                 $(document.createElement("a"))
                     .attr("href","profile.php?do=facelift")
@@ -1028,90 +1075,65 @@ function handleScriptChecks(){
                     .appendTo($("#navbar-login .buttons"));
             },
             "createOptionsMenu": function(){
-                document.body.textContent = "Loading page!!";
-
-                unsafeWindow.document.documentElement.innerHTML = GM_getResourceText("FLCONFIGPAGE");
-
-                $("#usercp_nav .active").attr("class", "inactive");
-                $("#breadcrumb #lastelement").text("Facelift Configuration");
-
-                
-                addOptionToUserCP("Configuration", "profile.php?do=facelift", true);
+                var mybody = util.prepUCPMenu("Facelift Configuration", "Edit Facelift Options");
 
                 var myconfigbody = $(document.createElement("div"))
                     .addClass("blockbody formcontrols settings_form_border");
 
                 //allow editing/resetting of config, but not data
                 for(var i = 0; i < configList.length; i++){
-                    this.displayValues(myconfigbody, configList[i], true, true);
+                    if(configList[i] === scripts) continue;
+                    configList[i].prettyPrintList(myconfigbody);
                 }
 
-                $("#usercp_content > div").append($(document.createElement("div"))
-                    .addClass("block")
-                    .append($(document.createElement("h2"))
-                        .addClass("blockhead")
-                        .text("Edit Facelift Options")
-                    )
-                    .append(myconfigbody)
-                );
-
-                // modify timestamp at bottom of page
-                var timezone = data.get("timezone");
-                if(timezone) timezone *= -1;
-                var mydate = new Date();
-                $("#footer_time").html("All times are GMT " + timezone + ". The time now is <span class=\"time\">" + mydate.toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit'}) + "</span>.");
-            },
-            "displayValues": function(div, type){
-                var mytable = $(document.createElement("table"));
-                mytable.addClass("facelift_config");
-
-                div.append($(document.createElement("h3"))
-                    .addClass("blocksubhead")
-                    .text(type.displayName || "Header")
-                ).append($(document.createElement("div"))
-                    .addClass("section")
-                    .append(mytable)
-                );
-
-                var myrow = $(document.createElement("tr"));
-                mytable.append(myrow);
-
-                myrow.append($(document.createElement("th"))
-                        .text("Key")
-                        .addClass("facelift_config key")
-                    )
-                    .append($(document.createElement("th"))
-                        .text("Value")
-                        .addClass("facelift_config value")
-                    );
-
-                if(type.allowDelete === true){
-                    myrow.prepend($(document.createElement("th"))
-                        .text("Delete")
-                        .addClass("facelift_config delete")
-                    );
-                }
-
-                var mylist = type.list();
-
-                for(var i = 0; i < mylist.length; i++){
-                    var mykey = Object.keys(mylist[i])[0];
-                    type.prettyPrint(mytable, mykey, mylist[i][mykey]);
-                }
+                mybody.append(myconfigbody);
             },
         });
 
+        // script list menu in usercp
+        registerScriptReal(true, {
+            "version": "0.0.7",
+            "author": "HeroicPillow",
+            "name": "Script Menu",
+            "shortname": "scriptmenu",
+            "description": "This script controls what you're looking at right now!!!",
+            "order": 2,
+
+            "load": function(){
+                if(pageinfo.usercp && pageinfo.qparams.do === "faceliftscripts"){
+                        this.createMenu();
+                        this.makeactive = true;
+                }
+            },
+            "loadLate": function(){
+                if(pageinfo.usercp){
+                    util.addOptionToUserCP("Scripts", "profile.php?do=faceliftscripts", this.makeactive || false);
+                }
+            },
+            "createMenu": function(){
+                var mybody = util.prepUCPMenu("Facelift Scripts", "Manage your installed scripts");
+
+                var myconfigbody = $(document.createElement("div"))
+                    .addClass("blockbody formcontrols settings_form_border");
+
+                scripts.prettyPrintList(myconfigbody);
+
+                mybody.append(myconfigbody);
+            },
+        });
+        
         // navbar links
         registerScriptReal(false, {
             "version": "0.0.1",
             "author": "HeroicPillow",
             "name": "Navbar Links",
             "shortname": "navbarlinks",
+            "description": "Adds some miscellaneous links to the navigation bar at the top of the page",
             "order": 9,
 
             "load": function(){
-                addNavbarLink("Ticker", "/fp_ticker.php", "ticker");
-                addNavbarLink("Subscriptions", "/usercp.php", "book");
+                util.addNavbarLink("Ticker", "/fp_ticker.php", "ticker");
+                util.addNavbarLink("Subscriptions", "/usercp.php", "book");
             },
         });
 
@@ -1119,15 +1141,16 @@ function handleScriptChecks(){
         registerScriptReal(false, {
             "version": "0.0.1",
             "author": "HeroicPillow",
-            "name": "Disqus Sidebar",
-            "shortname": "disqussidebar",
+            "name": "Facepunch Chat",
+            "shortname": "facepunchchat",
+            "description": "Reimplements chat functionality for facepunch",
             "order": 0,
 
             'load': function(){
-                if(config.get("showchat") === true) this.toggle();
+                this.addCSS();
+                if(config.get("showchat", false) === true) this.toggle();
 
                 var mythis = this;
-
                 $(document.createElement('button'))
                     .text("Chat")
                     .addClass("chatbutton")
@@ -1140,6 +1163,20 @@ function handleScriptChecks(){
                         mythis.toggle();
                     })
                     .appendTo(document.body);
+            },
+            'addCSS': function(){
+                var ourcss = "";
+                ourcss += "\r\n body { margin-bottom: 2em; }";
+                ourcss += "\r\n .chatbutton{ position:fixed; z-index: 2; bottom:0; right:0em; padding: .4em 1em; background: #fff; border:1px solid #222; cursor: pointer; }";
+                ourcss += "\r\n #sidebar { float: right; width: 40%; background: rgba(255,255,255,.8); margin-top: 1em;}";
+                ourcss += "\r\n #sidebar h2 { font-size: 12pt; font-weight: bold; padding: .5em;}";
+                ourcss += "\r\n #disqus_thread { margin: 2em; }";
+                //fixing the clears for chat
+                ourcss += "\r\n #footer { z-index: 1; position: relative; clear:left; width: inherit; }";
+                ourcss += "\r\n .threadlist, .below_threadlist, .above_threadlist, .member_summary, .member_summary .block, table#threads, #content_inner, .postlist, #postlist, div.threadhead, div.threadfoot, ol#posts .postbitlegacy, ol#announcements .postbitlegacy, div#showpm > ol .postbitlegacy, ol#message_list .postbitlegacy, ol#posts .postbit, ol#announcements .postbit, div#showpm > ol .postbit, ol#message_list .postbit, ol#posts .postbitdeleted, ol#announcements .postbitdeleted, div#showpm > ol .postbitdeleted, ol#message_list .postbitdeleted { clear: left; }";
+                ourcss += "\r\n .makeroomforsidebar { margin-right: calc(40% + 1em) !important; }";
+
+                util.appendCSS(ourcss);
             },
             'toggle': function(){
                 var sidebar = $("#sidebar");
@@ -1197,9 +1234,11 @@ function handleScriptChecks(){
             "author": "HeroicPillow",
             "name": "Subscription Improvement",
             "shortname": "subscriptions",
+            "description": "Vastly overhauls the VBulletin subscription functionality to not be so shitty",
             "order": 0,
 
             "load": function(){
+                this.addCSS();
                 if(pageinfo.forum === true){
                     //add subscription column to thread list
                     $("#threads .threadlisthead .threadicon").after($(document.createElement("td"))
@@ -1242,7 +1281,7 @@ function handleScriptChecks(){
                             e.preventDefault();
                             mythis.subscribeThread(
                                 $(this),
-                                parseInt(getQueryParams(thread.find(".threadtitle .title").attr("href")).t, 10)
+                                parseInt(util.getQueryParams(thread.find(".threadtitle .title").attr("href")).t, 10)
                             );
                         })
                     )
@@ -1276,6 +1315,14 @@ function handleScriptChecks(){
             "updateSubscriptionData": function(){
                 console.log("Totally not updating subscription data");
             },
+            "addCSS": function(){
+                var ourcss = "";
+                ourcss += "\r\n table#threads tr td.threadsubscribe { text-align:center; min-width: auto; }";
+                ourcss += "\r\n .threadsubscribe a { font-size: 170%; vertical-align: middle; color: #BBB !important; text-shadow: -1px -1px 0px #000, 1px 1px 0px #FFF;}";
+                ourcss += "\r\n .threadsubscribe a:hover { text-decoration: none; color: #E0DD9F !important; }";
+                ourcss += "\r\n .threadsubscribe a.subscribed { color: #FFA !important; text-shadow: 1px 0px #777, 0px 1px #777, -1px 0px #777, 0px -1px #777;}";
+                util.appendCSS(ourcss);
+            },
         });
 
         // debug posts
@@ -1284,6 +1331,7 @@ function handleScriptChecks(){
             "author": "HeroicPillow",
             "name": "Debug Posts",
             "shortname": "debugposts",
+            "description": "Adds inline information to posts for easy viewing/debugging",
             "order": 0,
 
             "load": function(){
@@ -1340,11 +1388,43 @@ function handleScriptChecks(){
             },
         });
 
+        // css fixes
+        registerScriptReal(false, {
+            "version": "0.0.1",
+            "author": "HeroicPillow",
+            "name": "CSS Normalizer",
+            "shortname": "cssnormalizer",
+            "description": "Completely overhauls Facepunch's CSS to try and not make it so fucked up.",
+            "order": 0,
+
+            'load': function(){
+                this.addCSS();
+            },
+            'addCSS': function(){
+                var ourcss = '';
+                ourcss += GM_getResourceText("FPFIXER_CSS") + "\n";
+
+                if(config.get('shrinkimages', true) === true){
+                    ourcss += "\r\n .quote { display: block; left:0; right: 1em; overflow:hidden; height:auto;}";
+                    ourcss += "\r\n .postbit .content img, .postbitlegacy .content img, .postbitdeleted .content img, .postbitignored .content img, .eventbit .content img { max-width: 100% !important; max-height: 1024px !important; }";
+                    ourcss += "\r\n .postbit .content img[class~=\"thumbnail\"], .postbitlegacy .content img[class~=\"thumbnail\"], .postbitdeleted .content img[class~=\"thumbnail\"], .postbitignored .content img[class~=\"thumbnail\"], .eventbit .content img[class~=\"thumbnail\"], div.quote div.message img { max-width: 800px !important; max-height: 350px !important; }";
+                    ourcss += "\r\n DIV.video {max-width: 100%; position:relative;}";
+                    ourcss += "\r\n DIV.video iframe {top:0; left:0; position:absolute;}";
+                }
+                else{ //someone has bad taste tbh
+                    ourcss += '\r\n blockquote.postcontent { overflow:auto !important; }';
+                }
+
+                //now we actually add our CSS to the page
+                util.appendCSS(ourcss);
+            },
+        });
+             
     } //end update block
     
     
     //this mostly is just a startup message to know if the config was reset properly
-    if(data.get("firsttime") === true){
+    if(data.get("firsttime", true) === true){
         $.growl({ title: "Facelift", message: "This is your first time running facelift!", location: "tc"});
         //make sure we don't run this again ever unless someone deletes their settings
         //data should now be visible hopefully so we can set this
@@ -1353,16 +1433,20 @@ function handleScriptChecks(){
 }
 
 
-//for "easy" development testing
+//for "easy" development unfucking
 function resetEverything(){
     scripts.resetAll();
     data.resetAll();
     config.resetAll();
 }
 
-//slow as fuck try for development purposes
+//try for development purposes
 try{
 //resetEverything();
+
+//add basic css to page
+util.appendCSS(GM_getResourceText("GROWL_CSS") + "\n");
+
 handleScriptChecks();
 executeScripts();
 }
