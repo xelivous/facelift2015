@@ -3,10 +3,11 @@
 // @namespace   com.facepunch.facelift
 // @description modifies facepunch a little
 // @include     /.*facepunch\.com/.*/
-// @version     0.9.5
+// @version     0.10.11
 // @require     jquery-1.11.2.min.js
 // @require     jquery.growl.js
 // @require     jsonfn.js
+// @requre      jquery-ui.min.js
 // @resource    GROWL_CSS   jquery.growl.css
 // @resource    FPFIXER_CSS fpfixer.css
 // @resource    FLCONFIGPAGE fpconfigpage.html
@@ -75,7 +76,7 @@ var icons = {
 };
 
 //utility functions used in scripts
-var util = {
+var facelift = {
     //add to our existing stylesheet if it's already there, or add it to the bottom of the page to prevent overwriting by default css
     "appendCSS": function(str){
         var mycssthing = document.getElementById('FP_CSS');
@@ -252,7 +253,7 @@ var util = {
             myuserguy.find("strong").text(myname);
             myuserguy.attr("href", "member.php?u=" + (data.get("userid") || 0));
             pageinfo.username = myname;
-            pageinfo.userid = parseInt(util.getQueryParams(myuserguy.attr("href")).u, 10);
+            pageinfo.userid = parseInt(facelift.getQueryParams(myuserguy.attr("href")).u, 10);
         }
         
         var myoutput = $(document.createElement("div"));
@@ -357,8 +358,6 @@ var configObj = function (prefix, settings, descriptions) {
         });
     };
     this.prettyPrint = function(node, key, value){
-        //console.log(key, value);
-
         //used in clicks
         var mythis = this;
         // because we automatically prefix keys
@@ -381,7 +380,7 @@ var configObj = function (prefix, settings, descriptions) {
             switch(typeof(value)){
                 case "boolean":
                     myinput.attr("type", "checkbox").attr("checked", value)
-                    .click(function(){ mythis.set(prefixless, this.checked); });
+                    .click(function(){ mythis.update(key, this.checked); });
                     break;
 
                 case "number":
@@ -391,7 +390,7 @@ var configObj = function (prefix, settings, descriptions) {
                     myinput.change(function(){
                         var myval = this.value;
                         try{ myval = JSONfn.parse(this.value); } catch(e) { /* this is mostly just for numbers anyways */ }
-                        mythis.set(prefixless, myval);
+                        mythis.update(key, myval);
                     });
                     break;
             }
@@ -426,7 +425,7 @@ var configObj = function (prefix, settings, descriptions) {
         );
 
         var myrow = $(document.createElement("tr"));
-        mytable.append(myrow);
+        mytable.append($(document.createElement("thead")).append(myrow));
 
         myrow.append($(document.createElement("th"))
                 .text("Key")
@@ -459,13 +458,64 @@ function registerConfigObject(wef){
 };
 
 /* Holds all of our stored scripts for easy reference
- * need to rewrite prototype.prettyPrint()
- * maybe prototype.set() too, for eval/root detection
  */
 var scripts = new configObj("scripts_", {} );
 scripts.allowDelete = false;
 scripts.allowEdit = false;
 scripts.displayName = "Scripts";
+scripts.isRoot = function(key){
+    return (key.substr(0, this.prefix.length + 1) === this.prefix + "a");
+};
+scripts.prettyPrint = function(node, key, script){
+    var mydiv = $(document.createElement("div"));
+    mydiv.addClass("facelift_config blockrow script").css("overflow","hidden").css("height","auto");
+    
+    var myright = $(document.createElement("div"));
+    
+    myright.css("float", "right")
+        .append(
+            $(document.createElement("button"))
+            .text("Edit")
+        )
+        .appendTo(mydiv);
+    
+    if(script.canDisable === true){
+        myright.append(
+            $(document.createElement("button"))
+            .text("Disable")
+        );
+    }
+    
+    if(script.canUninstall === true){
+        myright.append(
+            $(document.createElement("button"))
+            .text("Uninstall")
+        );
+    }
+    
+    //name and version
+    mydiv.append($(document.createElement("div"))
+        .addClass("titlemeta")
+        .append($(document.createElement("strong"))
+            .text(script.name || key)
+        ).append($(document.createElement("small"))
+            .text(" v" + (script.version || "?.?.?"))
+        )
+    );
+    
+    mydiv.append($(document.createElement("p"))
+        .addClass("description")
+        .css("margin-left", "10px")
+        .text(script.description || "")
+    );
+    
+    
+    
+    
+    node.append(mydiv);
+    
+};
+
 
 
 var data = new configObj("data_",
@@ -608,23 +658,19 @@ function registerScript(obj){
 }
 //actual register function. shouldn't be called directly in custom scripts
 function registerScriptReal(isRoot, obj){
-    var baseorder = (isRoot)? 'a' : 'b';
+    var baseorder = (isRoot)? 'a' : 'b';   
     var mystring = baseorder + "_" + numToLetters(obj.order || 0) + "_" + obj.shortname;
     
     var updatecheck = scripts.get(mystring);
     var doinstallfunc = false;
     var doinstall = false;
-    var dofirstrun = true;
     
     //if we already have the script installed
     if(typeof(updatecheck) !== 'undefined'){
-        //if our installed version is lower than our new version, set it to load, but don't call install
+        //if our installed version is lower than our new version, set it to install, but don't call it's install function
         if(!compareVersionNumbers(updatecheck.version, obj.version)){
             logger("Updating script [" + obj.name + "] to version (" + obj.version + ")");
             doinstall = true;
-        }
-        if(updatecheck.firstrun === false){
-            dofirstrun = false;
         }
     } else { 
         console.log("Installing script for first time: ", obj);
@@ -634,16 +680,43 @@ function registerScriptReal(isRoot, obj){
     }
     
     if(doinstall){
+        //set some variables that need to be set first and check for exploits
+        obj = preventScriptExploit(obj, isRoot, updatecheck);
+    
         //remove all instances of script based on the shortname to prevent conflicts
         scripts.resetAllContains(obj.shortname);
-        
-        //set some variables that need to be set first
-        obj.firstrun = dofirstrun;
         
         //actually store our script now
         scripts.set(mystring, obj);
     }
-    if(doinstallfunc && typeof(obj.install) !== 'undefined') obj.install();
+    if(doinstallfunc && typeof(obj.install) !== 'undefined'){
+        obj.install();
+    }
+}
+
+// script = script object of what we're installing
+// root = if the script we're installing is root
+// old = the currently installed script if it exists
+function preventScriptExploit(script, root, old){
+    if(old && old.firstrun === false){
+        script.firstrun = false;
+    } else {
+        script.firstrun = true;
+    }
+    script.updatetime = new Date();
+    script.isRoot = root;
+    
+    if(typeof(script.order) !== "number"){
+        script.order = 5;
+    }
+    
+    //force parameters back to default values if we're not a root script
+    if(root === false){
+        script.canDisable = true;
+        script.canUninstall = true;
+    }
+    
+    return script;
 }
 
 // taken from http://java.com/js/deployJava.js
@@ -759,12 +832,14 @@ function handleScriptChecks(){
          * still need to make it less cumbersome and modular
          */
         registerScriptReal(true, {
-            "version": "0.1.1",
+            "version": "0.3.0",
             "author": "HeroicPillow",
             "name": "Scraper",
             "shortname": "scraper",
             "description": "Fetches/parses useful information about the page you are currently browsing for usage in other scripts.",
-            "order": 1,
+            "order": 0,
+            "canDisable": true,
+            "canUninstall": false,
 
             "load": function(){
                 this.setupGlobals();
@@ -776,7 +851,7 @@ function handleScriptChecks(){
                     //make sure some values are set
                     var myuserguy = $( "#navbar-login > a");
                     data.set("username", myuserguy.text());
-                    data.set("userid", parseInt(util.getQueryParams(myuserguy.attr("href")).u, 10));
+                    data.set("userid", parseInt(facelift.getQueryParams(myuserguy.attr("href")).u, 10));
 
                     grabTimeZone();
                 }
@@ -814,7 +889,7 @@ function handleScriptChecks(){
                     }
                 }
 
-                var qparams = util.getQueryParams(window.location.search);
+                var qparams = facelift.getQueryParams(window.location.search);
                 pageinfo.qparams = qparams;
 
                 switch(loc){
@@ -837,11 +912,11 @@ function handleScriptChecks(){
 
                         //Find "breadcrumb" in header, take last span, find the "a" tag inside of it
                         pageinfo.forumName = $( "#breadcrumb :last-of-type a" ).text();
-                        pageinfo.forumID =  parseInt(util.getQueryParams($( "#breadcrumb :last-of-type a" )[0].href).f,10);
+                        pageinfo.forumID =  parseInt(facelift.getQueryParams($( "#breadcrumb :last-of-type a" )[0].href).f,10);
                         pageinfo.threadName = $( "#lastelement span" ).text();
                         //it's possible to be on thread page without specifiying "t" in the url
                         //so we fetch the permalink of the first post instead #yolo
-                        pageinfo.threadID = parseInt(util.getQueryParams($("a.postcounter")[0].href).t, 10);
+                        pageinfo.threadID = parseInt(facelift.getQueryParams($("a.postcounter")[0].href).t, 10);
                         pageinfo.pageNum = parseInt(qparams.page, 10) || 1;
 
                         if ($("#pollinfo").length ){
@@ -862,7 +937,7 @@ function handleScriptChecks(){
                     //making a sicknasty reply
                     case "newreply/": case "newreply.php":
                         pageinfo.newreply = true;
-                        pageinfo.threadID = parseInt(util.getQueryParams($( "#breadcrumb :last-of-type a" )[0].href).t,10);
+                        pageinfo.threadID = parseInt(facelift.getQueryParams($( "#breadcrumb :last-of-type a" )[0].href).t,10);
                         pageinfo.threadName = $( "#breadcrumb span:last-of-type a" ).text();
                         pageinfo.postID = parseInt(qparams.p || 0,10);
                         break;
@@ -957,7 +1032,7 @@ function handleScriptChecks(){
                 var myuserguy = $( "#navbar-login > a");
                 if(myuserguy.length > 0){
                     pageinfo.username = myuserguy.text();
-                    pageinfo.userid = parseInt(util.getQueryParams(myuserguy.attr("href")).u, 10);
+                    pageinfo.userid = parseInt(facelift.getQueryParams(myuserguy.attr("href")).u, 10);
                 }
             },
             "onThread": function(thread){
@@ -970,7 +1045,7 @@ function handleScriptChecks(){
                     "name": thread.find(".threadtitle > a.title").text(),
                     "replies": parseInt(thread.find(".threadreplies").text().replace(',', ''), 10),
                     "views": parseInt(thread.find(".threadviews").text().replace(',', ''), 10),
-                    "lastpostdate": util.actualTime(thread.find( ".threadlastpost > dl > dd:first-of-type" ).text())
+                    "lastpostdate": facelift.actualTime(thread.find( ".threadlastpost > dl > dd:first-of-type" ).text())
                 };
             },
             "processPosts": function(){
@@ -985,7 +1060,7 @@ function handleScriptChecks(){
                     //only process if the post wasn't deleted
                     if(post.attr("class").indexOf("postbitdeleted") !== -1) return false;
 
-                    var postid = parseInt(util.getQueryParams(post.find(".postcounter").attr("href")).p, 10);
+                    var postid = parseInt(facelift.getQueryParams(post.find(".postcounter").attr("href")).p, 10);
                     var userstats = post.find("#userstats").html().split("<br>");
 
                     //find the ratings, parse a list of them, store into array with keys being the name, and value being the count
@@ -1004,13 +1079,13 @@ function handleScriptChecks(){
                     if(countrycode !== null) countrystats[country.attr("alt")] = countrycode[1];
 
                     //who posted this thing??
-                    var userid = parseInt(util.getQueryParams(post.find(".username").attr("href")).u, 10);
+                    var userid = parseInt(facelift.getQueryParams(post.find(".username").attr("href")).u, 10);
 
                     //values that we can easily retrieve
                     pageinfo["posts"][postid] = {
                         "id": postid,
                         "idname": "#post_" + postid,
-                        "time": util.actualTime(post.find( ".postdate .date" ).text()),
+                        "time": facelift.actualTime(post.find( ".postdate .date" ).text()),
                         "edited": ( post.find(".postdate .time").length > 0 || false ),
                         "posterid": userid,
                         "ratings": ratingsarr,
@@ -1022,7 +1097,7 @@ function handleScriptChecks(){
                     };
 
                     pageinfo["users"][userid] = {
-                        "id": parseInt(util.getQueryParams(post.find(".username").attr("href")).u, 10),
+                        "id": parseInt(facelift.getQueryParams(post.find(".username").attr("href")).u, 10),
                         "name": post.find(".username").text(),
                         "title": post.find(".usertitle").text(),
                         "avatar": post.find("img[alt*=\"Avatar\"]"),
@@ -1046,12 +1121,14 @@ function handleScriptChecks(){
 
         // Config menu in usercp
         registerScriptReal(true, {
-            "version": "0.0.7",
+            "version": "0.2.0",
             "author": "HeroicPillow",
             "name": "Config Menu",
             "shortname": "configmenu",
             "description": "Allows you to customize your facelift ~experience~",
             "order": 2,
+            "canDisable": false,
+            "canUninstall": false,
 
             "load": function(){
                 if(pageinfo.usercp && pageinfo.qparams.do === "facelift"){
@@ -1061,7 +1138,7 @@ function handleScriptChecks(){
             },
             "loadLate": function(){
                 if(pageinfo.usercp){
-                    util.addOptionToUserCP("Configuration", "profile.php?do=facelift", this.makeactive || false);
+                    facelift.addOptionToUserCP("Configuration", "profile.php?do=facelift", this.makeactive || false);
                 }
             
                 //create link back to config menu
@@ -1075,7 +1152,7 @@ function handleScriptChecks(){
                     .appendTo($("#navbar-login .buttons"));
             },
             "createOptionsMenu": function(){
-                var mybody = util.prepUCPMenu("Facelift Configuration", "Edit Facelift Options");
+                var mybody = facelift.prepUCPMenu("Facelift Configuration", "Edit Facelift Options");
 
                 var myconfigbody = $(document.createElement("div"))
                     .addClass("blockbody formcontrols settings_form_border");
@@ -1092,59 +1169,138 @@ function handleScriptChecks(){
 
         // script list menu in usercp
         registerScriptReal(true, {
-            "version": "0.0.7",
+            "version": "0.3.7",
             "author": "HeroicPillow",
             "name": "Script Menu",
             "shortname": "scriptmenu",
             "description": "This script controls what you're looking at right now!!!",
             "order": 2,
+            "canDisable": false,
+            "canUninstall": false,
 
             "load": function(){
                 if(pageinfo.usercp && pageinfo.qparams.do === "faceliftscripts"){
-                        this.createMenu();
-                        this.makeactive = true;
+                    this.createMenu();
+                    this.makeactive = true;
+                }
+                if(pageinfo.usercp && pageinfo.qparams.do === "scriptinstall"){
+                    this.installMenu();
+                    this.makeactive = false;
                 }
             },
             "loadLate": function(){
                 if(pageinfo.usercp){
-                    util.addOptionToUserCP("Scripts", "profile.php?do=faceliftscripts", this.makeactive || false);
+                    facelift.addOptionToUserCP("Scripts", "profile.php?do=faceliftscripts", this.makeactive || false);
                 }
             },
             "createMenu": function(){
-                var mybody = util.prepUCPMenu("Facelift Scripts", "Manage your installed scripts");
+                var mybody = facelift.prepUCPMenu("Facelift Scripts", "Manage your installed scripts");
 
                 var myconfigbody = $(document.createElement("div"))
                     .addClass("blockbody formcontrols settings_form_border");
 
-                scripts.prettyPrintList(myconfigbody);
+                this.prettyPrintList(myconfigbody);
 
                 mybody.append(myconfigbody);
             },
+            "installMenu": function(){
+                var mybody = facelift.prepUCPMenu("Facelift Scripts", "Install a facelift script!!");
+
+                var myconfigbody = $(document.createElement("div"))
+                    .addClass("blockbody formcontrols settings_form_border");
+
+                mybody.append(myconfigbody);
+                
+                myconfigbody.append($(document.createElement("h3"))
+                    .text("Script Source")
+                    .addClass("blocksubhead")
+                );
+                
+                var mytextbox = $(document.createElement("textarea"))
+                    .addClass("scriptbox")
+                    .css("resize", "none")
+                    .css("width", "100%")
+                    .css("height", "300px");
+                myconfigbody.append(mytextbox);
+                
+                if(pageinfo.qparams.install){
+                    $.ajax({
+                        type: "GET",
+                        url: pageinfo.qparams.install,
+                        dataType: "text",
+                        })
+                        .done(function(msg) {
+                            mytextbox.text(msg);
+                        })
+                        .fail(function(jx, e) {
+                            logerror( "Whoops failed with fetching your install script: ", e );
+                        });
+                } else {
+                    myconfigbody.text("You need to specify an install thing!!");
+                }
+            },
+            "prettyPrintList": function(target){
+                target.append($(document.createElement("div"))
+                    .text("Script Management")
+                    .addClass("blocksubhead")
+                );
+
+                target.append($(document.createElement("div"))
+                    .addClass("facelift_config section")
+                    .append(
+                        $(document.createElement("a"))
+                        .text("Install New Script")
+                        .addClass("facelift_link button")
+                        .attr("href", "profile.php?do=scriptinstall")
+                    )
+                );
+
+                target.append($(document.createElement("h3"))
+                    .text("Installed Scripts")
+                    .addClass("blocksubhead")
+                );
+
+                var mysection = $(document.createElement("h3"));
+                mysection.addClass("facelift_config section");
+
+                target.append(mysection);
+
+                var mylist = scripts.list();
+                for(var i = 0; i < mylist.length; i++){
+                    var mykey = Object.keys(mylist[i])[0];
+                    scripts.prettyPrint(mysection, mykey, mylist[i][mykey]);
+                }
+            },
+
         });
         
         // navbar links
-        registerScriptReal(false, {
-            "version": "0.0.1",
+        registerScriptReal(true, {
+            "version": "0.2.0",
             "author": "HeroicPillow",
             "name": "Navbar Links",
             "shortname": "navbarlinks",
             "description": "Adds some miscellaneous links to the navigation bar at the top of the page",
             "order": 9,
+            "canDisable": true,
+            "canUninstall": false,
 
-            "load": function(){
-                util.addNavbarLink("Ticker", "/fp_ticker.php", "ticker");
-                util.addNavbarLink("Subscriptions", "/usercp.php", "book");
+            "loadLate": function(){
+                facelift.addNavbarLink("Ticker", "/fp_ticker.php", "ticker");
+                facelift.addNavbarLink("Subscriptions", "/usercp.php", "book");
             },
         });
 
-        // chat sidebar
-        registerScriptReal(false, {
-            "version": "0.0.1",
+        // chat functionality
+        registerScriptReal(true, {
+            "version": "0.2.0",
             "author": "HeroicPillow",
             "name": "Facepunch Chat",
             "shortname": "facepunchchat",
             "description": "Reimplements chat functionality for facepunch",
-            "order": 0,
+            "order": 5,
+            "canDisable": true,
+            "canUninstall": false,
 
             'load': function(){
                 this.addCSS();
@@ -1176,7 +1332,7 @@ function handleScriptChecks(){
                 ourcss += "\r\n .threadlist, .below_threadlist, .above_threadlist, .member_summary, .member_summary .block, table#threads, #content_inner, .postlist, #postlist, div.threadhead, div.threadfoot, ol#posts .postbitlegacy, ol#announcements .postbitlegacy, div#showpm > ol .postbitlegacy, ol#message_list .postbitlegacy, ol#posts .postbit, ol#announcements .postbit, div#showpm > ol .postbit, ol#message_list .postbit, ol#posts .postbitdeleted, ol#announcements .postbitdeleted, div#showpm > ol .postbitdeleted, ol#message_list .postbitdeleted { clear: left; }";
                 ourcss += "\r\n .makeroomforsidebar { margin-right: calc(40% + 1em) !important; }";
 
-                util.appendCSS(ourcss);
+                facelift.appendCSS(ourcss);
             },
             'toggle': function(){
                 var sidebar = $("#sidebar");
@@ -1229,13 +1385,15 @@ function handleScriptChecks(){
         });
 
         // subscribe functionality
-        registerScriptReal(false, {
-            "version": "0.0.1",
+        registerScriptReal(true, {
+            "version": "0.2.0",
             "author": "HeroicPillow",
             "name": "Subscription Improvement",
             "shortname": "subscriptions",
             "description": "Vastly overhauls the VBulletin subscription functionality to not be so shitty",
-            "order": 0,
+            "order": 5,
+            "canDisable": true,
+            "canUninstall": false,
 
             "load": function(){
                 this.addCSS();
@@ -1281,7 +1439,7 @@ function handleScriptChecks(){
                             e.preventDefault();
                             mythis.subscribeThread(
                                 $(this),
-                                parseInt(util.getQueryParams(thread.find(".threadtitle .title").attr("href")).t, 10)
+                                parseInt(facelift.getQueryParams(thread.find(".threadtitle .title").attr("href")).t, 10)
                             );
                         })
                     )
@@ -1321,18 +1479,20 @@ function handleScriptChecks(){
                 ourcss += "\r\n .threadsubscribe a { font-size: 170%; vertical-align: middle; color: #BBB !important; text-shadow: -1px -1px 0px #000, 1px 1px 0px #FFF;}";
                 ourcss += "\r\n .threadsubscribe a:hover { text-decoration: none; color: #E0DD9F !important; }";
                 ourcss += "\r\n .threadsubscribe a.subscribed { color: #FFA !important; text-shadow: 1px 0px #777, 0px 1px #777, -1px 0px #777, 0px -1px #777;}";
-                util.appendCSS(ourcss);
+                facelift.appendCSS(ourcss);
             },
         });
 
         // debug posts
-        registerScriptReal(false, {
-            "version": "0.0.1",
+        registerScriptReal(true, {
+            "version": "0.2.0",
             "author": "HeroicPillow",
             "name": "Debug Posts",
             "shortname": "debugposts",
             "description": "Adds inline information to posts for easy viewing/debugging",
-            "order": 0,
+            "order": 5,
+            "canDisable": true,
+            "canUninstall": false,
 
             "load": function(){
                 if(config.get("debug") === true){
@@ -1389,13 +1549,15 @@ function handleScriptChecks(){
         });
 
         // css fixes
-        registerScriptReal(false, {
-            "version": "0.0.1",
+        registerScriptReal(true, {
+            "version": "0.2.0",
             "author": "HeroicPillow",
             "name": "CSS Normalizer",
             "shortname": "cssnormalizer",
             "description": "Completely overhauls Facepunch's CSS to try and not make it so fucked up.",
-            "order": 0,
+            "order": 5,
+            "canDisable": true,
+            "canUninstall": false,
 
             'load': function(){
                 this.addCSS();
@@ -1416,7 +1578,7 @@ function handleScriptChecks(){
                 }
 
                 //now we actually add our CSS to the page
-                util.appendCSS(ourcss);
+                facelift.appendCSS(ourcss);
             },
         });
              
@@ -1445,7 +1607,14 @@ try{
 //resetEverything();
 
 //add basic css to page
-util.appendCSS(GM_getResourceText("GROWL_CSS") + "\n");
+facelift.appendCSS(GM_getResourceText("GROWL_CSS") + "\n");
+
+//jquery ui css because relative images
+$("head").append(
+    '<link '
+  + 'href="http://ajax.googleapis.com/ajax/libs/jqueryui/1.11.3/themes/flick/jquery-ui.min.css" '
+  + 'rel="stylesheet" type="text/css">'
+);
 
 handleScriptChecks();
 executeScripts();
